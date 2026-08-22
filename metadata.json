@@ -1,0 +1,6 @@
+{
+  "name": "Barangay Cabucbucan E-Clearance Portal",
+  "description": "Enterprise Information Assurance & Security compliant Barangay e-Clearance, records management, cryptographic document verification, and immutable audit logging system for Barangay Cabucbucan, Rizal, Nueva Ecija with Hon. Cornelio Laugo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
