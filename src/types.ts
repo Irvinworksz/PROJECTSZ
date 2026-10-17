@@ -29,11 +29,36 @@ export interface User {
   lastLogin?: string;
   isVerifiedResident: boolean;
   avatarUrl?: string;
-  // Multi-Factor Authentication (MFA / TOTP)
+  // Resident Verification Workflow
+  verificationStatus?: 'pending_review' | 'verified' | 'rejected';
+  idPhotoUrl?: string;
+  idPhotoName?: string;
+  idType?: string;
+  idNumber?: string;
+  verificationRemarks?: string;
+  reviewedByStaffName?: string;
+  reviewedAt?: string;
+  // Multi-Factor Authentication (MFA / 2FA - Gmail, TOTP & WebAuthn Biometrics)
   mfaEnabled: boolean;
   mfaRequired: boolean; // Mandatory for Staff, Official, Admin
+  mfaType?: 'gmail' | 'totp' | 'webauthn' | 'both';
   mfaBackupCodes?: string[];
   mfaSecret?: string;
+  webauthnEnabled?: boolean;
+  webauthnCredentials?: WebAuthnCredential[];
+}
+
+export interface WebAuthnCredential {
+  id: string;
+  credentialId: string;
+  publicKey?: string;
+  counter: number;
+  deviceName: string;
+  deviceType?: 'platform' | 'cross-platform' | 'security_key';
+  createdAt: string;
+  lastUsedAt?: string;
+  transports?: string[];
+  aaguid?: string;
 }
 
 export interface UploadedDocument {
@@ -74,8 +99,40 @@ export interface ResidentProfile {
   voterStatus: 'Registered' | 'Non-Registered';
   idType: string;
   idNumber: string;
+  idPhotoUrl?: string;
+  idPhotoName?: string;
+  verificationStatus?: 'pending_review' | 'verified' | 'rejected';
+  verificationRemarks?: string;
+  reviewedByStaffName?: string;
+  reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ResidentVerificationRecord {
+  id: string;
+  userId: string;
+  username: string;
+  fullName: string;
+  email: string;
+  contactNumber: string;
+  purokZone: string;
+  streetAddress: string;
+  yearsOfResidency: number;
+  birthDate: string;
+  civilStatus: string;
+  gender: string;
+  voterStatus: string;
+  idType: string;
+  idNumber: string;
+  idPhotoUrl?: string;
+  idPhotoName?: string;
+  isVerifiedResident: boolean;
+  verificationStatus: 'pending_review' | 'verified' | 'rejected';
+  verificationRemarks?: string;
+  reviewedByStaffName?: string;
+  reviewedAt?: string;
+  createdAt: string;
 }
 
 export interface ClearanceRequest {
@@ -135,6 +192,8 @@ export interface NotificationRecord {
   message: string;
   timestamp: string;
   status: 'delivered' | 'sent' | 'failed';
+  targetRole?: UserRole | 'all';
+  title?: string;
   residentId?: string;
   residentName?: string;
   applicationId?: string;

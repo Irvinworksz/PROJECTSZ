@@ -36,6 +36,17 @@ export function signAuthToken(user: AuthenticatedUser): string {
 }
 
 /**
+ * Safely decodes and validates a JWT token without throwing
+ */
+export function verifyTokenSafely(token: string): AuthenticatedUser | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Middleware: Verifies JWT token and attaches user object to request
  */
 export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
@@ -52,7 +63,23 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
-    req.user = decoded;
+    const dbUser = db.findUserById(decoded.id);
+
+    if (!dbUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'User account no longer exists or session has expired. Please sign in again.',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    req.user = {
+      id: dbUser.id,
+      username: dbUser.username,
+      email: dbUser.email,
+      role: dbUser.role as UserRole,
+      fullName: dbUser.full_name
+    };
     next();
   } catch (err: any) {
     return res.status(403).json({

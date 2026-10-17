@@ -136,6 +136,27 @@ export async function generateQrCodeDataUrl(otpAuthUrl: string): Promise<string>
 }
 
 /**
+ * Generates a cryptographically secure 6-digit numeric OTP code for Email / Gmail verification
+ */
+export function generateEmailOtp(): string {
+  const num = crypto.randomInt(100000, 999999);
+  return num.toString();
+}
+
+/**
+ * Masks an email address for privacy and secure display (e.g., d***5@gmail.com)
+ */
+export function maskEmailAddress(email: string): string {
+  if (!email || !email.includes('@')) return 'your registered Gmail';
+  const [local, domain] = email.trim().toLowerCase().split('@');
+  if (local.length <= 2) {
+    return `${local[0]}*@${domain}`;
+  }
+  const maskedLocal = `${local[0]}${'*'.repeat(Math.max(local.length - 2, 3))}${local[local.length - 1]}`;
+  return `${maskedLocal}@${domain}`;
+}
+
+/**
  * Generates a set of 8 cryptographically secure single-use recovery backup codes
  */
 export function generateBackupCodes(count: number = 8): string[] {
@@ -146,3 +167,5 @@ export function generateBackupCodes(count: number = 8): string[] {
   }
   return codes;
 }
+
+

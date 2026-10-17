@@ -57,12 +57,12 @@ export const DocumentPrintModal: React.FC<DocumentPrintModalProps> = ({ request,
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-      <div className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 my-8 overflow-hidden print:m-0 print:p-0 print:shadow-none print:w-full print:max-w-none print:border-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+      <div className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-white/80 my-8 overflow-hidden print:m-0 print:p-0 print:shadow-none print:w-full print:max-w-none print:border-none">
         {/* Top Control Bar (Hidden on print) */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-900 border-b border-slate-800 text-white print:hidden">
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-900/95 border-b border-white/10 text-white backdrop-blur-md print:hidden">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400">
+            <div className="p-2.5 bg-blue-500/20 border border-blue-500/30 rounded-2xl text-blue-400 shadow-2xs">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
@@ -74,14 +74,14 @@ export const DocumentPrintModal: React.FC<DocumentPrintModalProps> = ({ request,
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer"
+              className="flex items-center gap-2 px-5 py-2.5 btn-3d bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Print / Save PDF
             </button>
             <button
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -104,10 +104,15 @@ export const DocumentPrintModal: React.FC<DocumentPrintModalProps> = ({ request,
             <div className="border border-slate-700 p-8 sm:p-10 relative">
               {/* Official Header */}
               <div className="text-center border-b-2 border-slate-900 pb-6 relative">
-                {/* Official Barangay Emblem SVG Placeholder */}
+                {/* Official Barangay Emblem & Municipal Seals */}
                 <div className="flex items-center justify-center gap-6 mb-3">
-                  <div className="w-16 h-16 rounded-full border-2 border-blue-900 bg-blue-50 flex items-center justify-center text-blue-950 font-sans font-bold text-xs p-1 shadow-inner text-center leading-none">
-                    <span>REPUBLIC OF THE PHILS</span>
+                  <div className="w-16 h-16 rounded-full border-2 border-slate-300 bg-white flex items-center justify-center p-0.5 shadow-xs shrink-0 overflow-hidden">
+                    <img
+                      src="/brgy_seal.jpg"
+                      alt="Barangay Cabucbucan Official Seal"
+                      className="w-full h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
                   </div>
                   <div className="space-y-0.5">
                     <p className="text-xs uppercase tracking-widest font-sans font-medium text-slate-700">Republic of the Philippines</p>
@@ -115,8 +120,13 @@ export const DocumentPrintModal: React.FC<DocumentPrintModalProps> = ({ request,
                     <h2 className="text-base font-bold uppercase tracking-wider text-slate-950 font-sans">Barangay Cabucbucan</h2>
                     <p className="text-xs italic font-sans text-blue-900 font-semibold">Office of the Punong Barangay</p>
                   </div>
-                  <div className="w-16 h-16 rounded-full border-2 border-amber-800 bg-amber-50 flex items-center justify-center text-amber-950 font-sans font-bold text-xs p-1 shadow-inner text-center leading-none">
-                    <span>OFFICIAL SEAL</span>
+                  <div className="w-16 h-16 rounded-full border-2 border-slate-300 bg-white flex items-center justify-center p-0.5 shadow-xs shrink-0 overflow-hidden">
+                    <img
+                      src="/brgy_seal.jpg"
+                      alt="Barangay Cabucbucan Municipal Seal"
+                      className="w-full h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
                   </div>
                 </div>
 
@@ -257,7 +267,7 @@ export const DocumentPrintModal: React.FC<DocumentPrintModalProps> = ({ request,
                     <span>IAS CRYPTOGRAPHIC INTEGRITY PROOF (ANTI-FORGERY)</span>
                   </div>
                   <p className="text-[10px] text-slate-600">
-                    Scan the QR code or verify at the Public Verification Portal to validate document authenticity against the immutable Barangay database.
+                    Scan the QR code to validate document authenticity against the immutable Barangay database.
                   </p>
                   <p className="text-[9px] font-mono text-slate-700 break-all bg-white p-1.5 rounded border border-slate-200">
                     <strong className="text-slate-900">SHA-256 HASH:</strong> {request.cryptoHash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}

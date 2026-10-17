@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Connection health check document
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // Function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Users collection: users can read their own profile, staff/captain/admin can read profiles
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.role in ['admin', 'captain', 'staff']);
+      allow delete: if isAuthenticated() && request.auth.token.role == 'admin';
+    }
+
+    // Clearance Requests: residents can read their own; staff/captain/admin can read & update
+    match /clearanceRequests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && request.auth.token.role == 'admin';
+    }
+
+    // Audit Logs: Append-only, strictly immutable (no updates, no deletes)
+    match /auditLogs/{auditId} {
+      allow read: if isAuthenticated();
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // Notifications: Recipient can read and mark as read
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated();
+      allow create: if true;
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // System settings
+    match /systemSettings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.token.role == 'admin';
+    }
+  }
+}

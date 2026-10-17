@@ -56,11 +56,12 @@ export const RateLimiter = {
   },
 
   /**
-   * Check login rate limit and brute-force lockout (5 failed attempts -> 5 min lockout)
+   * Check login rate limit and brute-force lockout (8 failed attempts -> 30s lockout)
    */
   checkAuthAttempt(identifier: string): { allowed: boolean; lockTimeRemainingSeconds?: number } {
+    const key = (identifier || '').trim().toLowerCase();
     const now = Date.now();
-    const record = authLockoutMap.get(identifier);
+    const record = authLockoutMap.get(key);
 
     if (!record) return { allowed: true };
 
@@ -71,7 +72,7 @@ export const RateLimiter = {
       };
     }
 
-    // Lockout expired, reset lockout flag if older than 10 mins
+    // Lockout expired, reset lockout flag
     if (record.lockedUntil && now >= record.lockedUntil) {
       record.lockedUntil = undefined;
       record.failedAuthCount = 0;
@@ -84,9 +85,10 @@ export const RateLimiter = {
   /**
    * Record a failed login attempt; triggers lockout if threshold is exceeded
    */
-  recordFailedAuth(identifier: string, maxAttempts: number = 5, lockoutDurationMs: number = 300000) {
+  recordFailedAuth(identifier: string, maxAttempts: number = 8, lockoutDurationMs: number = 30000) {
+    const key = (identifier || '').trim().toLowerCase();
     const now = Date.now();
-    let record = authLockoutMap.get(identifier);
+    let record = authLockoutMap.get(key);
 
     if (!record) {
       record = {
@@ -95,7 +97,7 @@ export const RateLimiter = {
         lastAttempt: now,
         failedAuthCount: 1
       };
-      authLockoutMap.set(identifier, record);
+      authLockoutMap.set(key, record);
       return;
     }
 
@@ -109,10 +111,11 @@ export const RateLimiter = {
   },
 
   /**
-   * Clear failed authentication on successful login
+   * Clear failed authentication on successful login or registration
    */
   recordSuccessfulAuth(identifier: string) {
-    authLockoutMap.delete(identifier);
+    const key = (identifier || '').trim().toLowerCase();
+    authLockoutMap.delete(key);
   },
 
   getStats() {

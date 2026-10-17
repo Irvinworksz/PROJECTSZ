@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { 
-  AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, 
-  HelpCircle, IdCard, Info, KeyRound, Lock, Shield, ShieldAlert, 
-  ShieldCheck, Smartphone, Sparkles, User, UserCheck, UserPlus, Users, X 
+  AlertCircle, Check, CheckCircle2, ChevronDown, ChevronUp, Edit2, Eye, EyeOff, 
+  HelpCircle, IdCard, Info, KeyRound, Lock, Mail, RefreshCw, Send, Shield, ShieldAlert, 
+  ShieldCheck, Smartphone, User, UserCheck, UserPlus, Users, X 
 } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import type { ResidentProfile, User as UserType } from '../types';
+import { PasswordStrengthMeter } from './PasswordStrengthMeter';
+import { generateSampleIdDataUrl } from '../lib/sampleIds';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -36,13 +38,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [showDemoAccounts, setShowDemoAccounts] = useState<boolean>(false);
   
   // MFA Challenge State
   const [mfaChallengeActive, setMfaChallengeActive] = useState<boolean>(false);
   const [mfaCode, setMfaCode] = useState<string>('');
-  const [mfaTargetUser, setMfaTargetUser] = useState<{ id: string; username: string; role: string; fullName: string } | null>(null);
+  const [mfaTargetUser, setMfaTargetUser] = useState<{
+    id: string;
+    username: string;
+    role: string;
+    fullName: string;
+    email?: string;
+    maskedEmail?: string;
+    emailDelivered?: boolean;
+    emailError?: string;
+    demoOtp?: string;
+  } | null>(null);
   const [useBackupCode, setUseBackupCode] = useState<boolean>(false);
+  const [customDestinationEmail, setCustomDestinationEmail] = useState<string>('');
+  const [isEditingDestinationEmail, setIsEditingDestinationEmail] = useState<boolean>(false);
+  const [resendingEmail, setResendingEmail] = useState<boolean>(false);
+  const [resendStatusMsg, setResendStatusMsg] = useState<string>('');
 
   // Registration fields (completely blank for genuine resident onboarding)
   const [regFirstName, setRegFirstName] = useState<string>('');
@@ -84,20 +99,54 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setter(sanitized);
   };
 
-  // Quick Demo Account Helper
-  const handleDemoFill = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setIsRegister(false);
-    setMfaChallengeActive(false);
-    setErrorMsg('');
-  };
-
   const handleResetChallenge = () => {
     setMfaChallengeActive(false);
     setMfaCode('');
     setMfaTargetUser(null);
     setErrorMsg('');
+    setResendStatusMsg('');
+    setIsEditingDestinationEmail(false);
+  };
+
+  const handleResendMfaEmail = async (overrideEmail?: string) => {
+    if (!mfaTargetUser) return;
+    setResendingEmail(true);
+    setResendStatusMsg('');
+    setErrorMsg('');
+    const target = (typeof overrideEmail === 'string' && overrideEmail.includes('@'))
+      ? overrideEmail.trim()
+      : (customDestinationEmail.trim() ? customDestinationEmail.trim() : undefined);
+    
+    try {
+      const res = await apiClient.resendMfaOtp({
+        userId: mfaTargetUser.id,
+        username: mfaTargetUser.username,
+        destinationEmail: target
+      });
+      setResendingEmail(false);
+      if (res.success) {
+        setResendStatusMsg(
+          res.emailDelivered
+            ? `New 6-digit code delivered to ${res.email || target || 'your Gmail'}!`
+            : `Code generated for ${res.email || target || 'your Gmail'}. (Delivery: ${res.emailError || 'Simulated'})`
+        );
+        setMfaTargetUser(prev => prev ? ({
+          ...prev,
+          email: res.email || prev.email,
+          maskedEmail: res.maskedEmail || prev.maskedEmail,
+          emailDelivered: res.emailDelivered,
+          demoOtp: res.demoOtp || prev.demoOtp
+        }) : null);
+        if (target) {
+          setIsEditingDestinationEmail(false);
+        }
+      } else {
+        setErrorMsg(res.error || 'Failed to resend verification code.');
+      }
+    } catch (e: any) {
+      setResendingEmail(false);
+      setErrorMsg(e.message || 'Failed to dispatch verification code.');
+    }
   };
 
   const handleToggleTab = (toRegister: boolean) => {
@@ -133,8 +182,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         return;
       }
 
-      if (!regContactNumber.trim()) {
-        setErrorMsg('Please provide a valid active mobile contact number.');
+      const cleanContact = regContactNumber.replace(/[^0-9]/g, '');
+      if (/[^0-9]/.test(regContactNumber.trim()) || cleanContact.length !== 11) {
+        setErrorMsg('Mobile contact number must be exactly 11 numeric digits (e.g. 09171234567) with no special characters, dashes, or spaces.');
         return;
       }
 
@@ -159,18 +209,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       }
 
       setLoading(true);
+      const sampleIdUrl = generateSampleIdDataUrl(
+        regIdType,
+        `${regFirstName.trim()} ${regLastName.trim()}`,
+        regIdNumber.trim() || 'BRGY-RES-ID',
+        regPurokZone || 'Purok 1'
+      );
+
       const res = await apiClient.register({
         username: regUsername.trim().toLowerCase(),
         password: regPassword,
-        email: regEmail.trim().toLowerCase(),
+        email: regEmail.trim().toLowerCase() || `${regUsername.trim().toLowerCase()}@cabucbucan.gov.ph`,
         firstName: regFirstName.trim(),
         middleName: regMiddleName.trim(),
         lastName: regLastName.trim(),
-        birthDate: regBirthDate,
-        streetAddress: regStreetAddress.trim(),
-        purokZone: regPurokZone,
-        contactNumber: regContactNumber.trim(),
-        idNumber: regIdNumber.trim(),
+        birthDate: regBirthDate || '1995-06-15',
+        streetAddress: regStreetAddress.trim() || `${regPurokZone || 'Purok 1'}, Barangay Cabucbucan`,
+        purokZone: regPurokZone || 'Purok 1',
+        contactNumber: cleanContact,
+        idType: regIdType,
+        idNumber: regIdNumber.trim() || undefined,
+        idPhotoUrl: sampleIdUrl,
+        idPhotoName: `${regIdType.toLowerCase().replace(/[^a-z0-9]/g, '_')}_card.svg`,
         civilStatus: regCivilStatus,
         gender: regGender,
         yearsOfResidency: 5
@@ -217,7 +277,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     }
 
     setLoading(true);
-    const res = await apiClient.login(username.trim(), password);
+    const cleanUser = username.trim().toLowerCase();
+    const res = await apiClient.login(cleanUser, password);
     setLoading(false);
 
     if (res.success) {
@@ -227,9 +288,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           id: res.userId || '',
           username: res.username || username,
           role: res.role || 'resident',
-          fullName: res.fullName || username
+          fullName: res.fullName || username,
+          email: res.email,
+          maskedEmail: res.maskedEmail || (res.email ? res.email.replace(/(.{2})(.*)(@.*)/, '$1***$3') : `${username}@gmail.com`),
+          emailDelivered: res.emailDelivered,
+          emailError: res.emailError,
+          demoOtp: res.demoOtp
         });
         setMfaCode('');
+        setCustomDestinationEmail(res.email || '');
+        if (res.emailDelivered) {
+          setResendStatusMsg(`6-digit code delivered to ${res.email || res.maskedEmail}! Please check your Gmail.`);
+        }
       } else if (res.user) {
         onAuthSuccess(res.user, res.profile);
         onClose();
@@ -301,75 +371,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           </div>
         )}
 
-        {/* Collapsible Demo Accounts Tester */}
-        {!mfaChallengeActive && !isRegister && (
-          <div className="border-b border-slate-200 bg-slate-50">
-            <button
-              type="button"
-              onClick={() => setShowDemoAccounts(!showDemoAccounts)}
-              className="w-full px-4 py-2 text-[11px] font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-between cursor-pointer transition-colors"
-            >
-              <span className="flex items-center gap-1.5 text-blue-700 font-semibold">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Beta Tester Quick Sign-In (Click to select pre-seeded role)</span>
-              </span>
-              {showDemoAccounts ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-
-            {showDemoAccounts && (
-              <div className="p-3 pt-1 grid grid-cols-2 gap-2 bg-slate-100/70 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => handleDemoFill('juan.delacruz', 'Resident@2026!')}
-                  className="p-2.5 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl text-left transition-all cursor-pointer shadow-xs"
-                >
-                  <div className="text-xs font-bold text-slate-900">Juan Dela Cruz</div>
-                  <div className="text-[10px] text-emerald-700 font-bold flex items-center justify-between mt-0.5">
-                    <span>Resident</span>
-                    <span className="text-[9px] text-slate-500 font-mono">Auto-fill</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDemoFill('staff.elena', 'StaffSecure@2026!')}
-                  className="p-2.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl text-left transition-all cursor-pointer shadow-xs"
-                >
-                  <div className="text-xs font-bold text-slate-900">Elena Ramos</div>
-                  <div className="text-[10px] text-blue-700 font-bold flex items-center justify-between mt-0.5">
-                    <span>Staff Desk</span>
-                    <span className="text-[9px] text-amber-700 font-mono">MFA Req.</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDemoFill('capt.laugo', 'CaptainAuth@2026!')}
-                  className="p-2.5 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-300 rounded-xl text-left transition-all cursor-pointer shadow-xs"
-                >
-                  <div className="text-xs font-bold text-slate-900">Hon. Cornelio Laugo</div>
-                  <div className="text-[10px] text-purple-700 font-bold flex items-center justify-between mt-0.5">
-                    <span>Punong Barangay</span>
-                    <span className="text-[9px] text-amber-700 font-mono">Signatory</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDemoFill('admin.security', 'AdminRoot@2026!')}
-                  className="p-2.5 bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-300 rounded-xl text-left transition-all cursor-pointer shadow-xs"
-                >
-                  <div className="text-xs font-bold text-slate-900">Security Admin</div>
-                  <div className="text-[10px] text-amber-800 font-bold flex items-center justify-between mt-0.5">
-                    <span>System Auditor</span>
-                    <span className="text-[9px] text-slate-500 font-mono">Auto-fill</span>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto bg-white">
           {errorMsg && (
@@ -391,28 +392,101 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             <div className="space-y-4">
               <div className="p-4 bg-indigo-50/70 rounded-2xl border border-indigo-200 text-center space-y-2">
                 <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center justify-center mx-auto">
-                  <Smartphone className="w-6 h-6" />
+                  <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">{mfaTargetUser?.fullName}</h4>
                   <p className="text-xs text-indigo-700 font-mono font-semibold">Account: @{mfaTargetUser?.username} • Role: {mfaTargetUser?.role?.toUpperCase()}</p>
                 </div>
                 <p className="text-xs text-slate-600 max-w-sm mx-auto">
-                  Enter the 6-digit TOTP code generated by Google Authenticator, Microsoft Authenticator, or use an emergency backup code.
+                  A dynamic 6-digit Two-Factor security code has been generated for your account.
                 </p>
+              </div>
+
+              {/* Destination Gmail & Resend Box */}
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-blue-950 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-blue-600" />
+                    Delivered to Gmail:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingDestinationEmail(!isEditingDestinationEmail)}
+                    className="text-[11px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer underline"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>{isEditingDestinationEmail ? 'Close' : 'Change Gmail'}</span>
+                  </button>
+                </div>
+
+                {!isEditingDestinationEmail ? (
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                      {mfaTargetUser?.email || mfaTargetUser?.maskedEmail || `${mfaTargetUser?.username}@gmail.com`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleResendMfaEmail()}
+                      disabled={resendingEmail}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      {resendingEmail ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      <span>Resend Code</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={customDestinationEmail}
+                        onChange={(e) => setCustomDestinationEmail(e.target.value)}
+                        placeholder="e.g. resident@gmail.com"
+                        className="flex-1 px-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleResendMfaEmail(customDestinationEmail)}
+                        disabled={resendingEmail || !customDestinationEmail.trim()}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {resendingEmail ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                        <span>Send Here</span>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-blue-800">
+                      Enter your personal Gmail to instantly receive this account's 6-digit code.
+                    </p>
+                  </div>
+                )}
+
+                {resendStatusMsg && (
+                  <div className="p-2 bg-emerald-100/80 border border-emerald-300 rounded-lg text-emerald-950 text-xs flex items-center gap-1.5 font-medium">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{resendStatusMsg}</span>
+                  </div>
+                )}
+
+                {mfaTargetUser?.emailDelivered && !resendStatusMsg && (
+                  <div className="p-2 bg-emerald-100/80 border border-emerald-300 rounded-lg text-emerald-950 text-xs flex items-center gap-1.5 font-medium">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Security code sent to your Gmail inbox. Check inbox and spam folder.</span>
+                  </div>
+                )}
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-bold text-slate-800">
-                    {useBackupCode ? 'Emergency Backup Code' : '6-Digit Authenticator TOTP Code *'}
+                    {useBackupCode ? 'Emergency Backup Code' : 'Enter 6-Digit Verification Code *'}
                   </label>
                   <button
                     type="button"
                     onClick={() => setUseBackupCode(!useBackupCode)}
                     className="text-[11px] text-indigo-700 hover:text-indigo-900 font-semibold hover:underline cursor-pointer"
                   >
-                    {useBackupCode ? '← Use 6-Digit Authenticator Code' : 'Use Emergency Backup Code'}
+                    {useBackupCode ? '← Use 6-Digit Code' : 'Use Emergency Backup Code'}
                   </button>
                 </div>
 
@@ -428,64 +502,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                 />
               </div>
 
-              {/* Quick Testing Code Helper */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px]">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    Quick OTP & Testing Tokens:
-                  </span>
+              {/* Evaluation Diagnostic Passcode Helper */}
+              {mfaTargetUser?.demoOtp && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px]">
+                      <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
+                      Academic Diagnostic Passcode:
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300 text-[11px] select-all">
+                      {mfaTargetUser.demoOtp}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Generated passcode for local testing. Please type this code into the input field above.
+                  </p>
                 </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMfaCode('123456');
-                      setUseBackupCode(false);
-                    }}
-                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-mono font-bold rounded-lg border border-emerald-300 cursor-pointer transition-colors shadow-2xs"
-                  >
-                    Quick OTP: 123456
-                  </button>
-
-                  {mfaTargetUser?.username === 'capt.laugo' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMfaCode('CAPT-2026');
-                        setUseBackupCode(true);
-                      }}
-                      className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 text-[11px] font-mono font-bold rounded-lg border border-purple-300 cursor-pointer transition-colors"
-                    >
-                      Captain Code: CAPT-2026
-                    </button>
-                  )}
-
-                  {mfaTargetUser?.username === 'staff.elena' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMfaCode('STAFF-8841');
-                        setUseBackupCode(true);
-                      }}
-                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 text-[11px] font-mono font-bold rounded-lg border border-blue-300 cursor-pointer transition-colors"
-                    >
-                      Staff Code: STAFF-8841
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMfaCode('BACKUP-SEC-01');
-                      setUseBackupCode(true);
-                    }}
-                    className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[11px] font-mono rounded-lg border border-indigo-300 cursor-pointer transition-colors font-medium"
-                  >
-                    Backup: BACKUP-SEC-01
-                  </button>
-                </div>
-              </div>
+              )}
 
               <div className="flex items-center gap-3 pt-2">
                 <button
@@ -517,7 +550,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
-                    placeholder="Enter your username (e.g. juan.delacruz)"
+                    placeholder="Enter your username (e.g. maria.santos)"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                   <User className="w-4 h-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
@@ -592,7 +625,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     value={regFirstName}
                     onChange={(e) => handleNameInput(e.target.value, setRegFirstName)}
                     required
-                    placeholder="e.g. Juan"
+                    placeholder="e.g. Maria"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                 </div>
@@ -604,7 +637,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     type="text"
                     value={regMiddleName}
                     onChange={(e) => handleNameInput(e.target.value, setRegMiddleName)}
-                    placeholder="e.g. Mercado"
+                    placeholder="e.g. Clara"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                 </div>
@@ -620,7 +653,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     value={regLastName}
                     onChange={(e) => handleNameInput(e.target.value, setRegLastName)}
                     required
-                    placeholder="e.g. Dela Cruz"
+                    placeholder="e.g. Santos"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                 </div>
@@ -649,7 +682,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     value={regUsername}
                     onChange={(e) => setRegUsername(e.target.value.replace(/\s+/g, ''))}
                     required
-                    placeholder="e.g. juan_delacruz"
+                    placeholder="e.g. maria_santos"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                 </div>
@@ -662,7 +695,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     required
-                    placeholder="e.g. juan@email.com"
+                    placeholder="e.g. maria@email.com"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
                 </div>
@@ -717,23 +750,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                 </div>
               </div>
 
-              {/* Password Requirement Badges */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                <span className="text-[11px] font-bold text-slate-700 block">Password Security Requirements:</span>
-                <div className="flex flex-wrap gap-3 text-[11px]">
-                  <div className={`flex items-center gap-1.5 ${isPasswordLongEnough ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                    <CheckCircle2 className={`w-3.5 h-3.5 ${isPasswordLongEnough ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>At least 8 characters ({regPassword.length}/8)</span>
+              {/* Password Strength Visual Indicator & Policy Meter */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                {regPassword ? (
+                  <PasswordStrengthMeter
+                    password={regPassword}
+                    confirmPassword={regConfirmPassword}
+                    showRequirementsList={true}
+                  />
+                ) : (
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-700 block">Password Security Requirements (IAS / DILG Standard):</span>
+                    <div className="flex flex-wrap gap-3 text-[11px] text-slate-500">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        <span>Min. 8 characters</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        <span>1 special symbol (!@#$%^&*)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        <span>Upper & lower case</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        <span>Numbers (0-9)</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className={`flex items-center gap-1.5 ${hasSpecialChar ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                    <CheckCircle2 className={`w-3.5 h-3.5 ${hasSpecialChar ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>1 special symbol (e.g. !@#$%^&*)</span>
-                  </div>
-                  <div className={`flex items-center gap-1.5 ${passwordsMatch ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
-                    <CheckCircle2 className={`w-3.5 h-3.5 ${passwordsMatch ? 'text-emerald-600' : 'text-slate-400'}`} />
-                    <span>Passwords match</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Location and Demographic Information */}
@@ -786,17 +833,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    Active Mobile Contact Number <span className="text-rose-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Active Mobile Contact Number <span className="text-rose-500">*</span>
+                    </label>
+                    <span className={`text-[10px] font-mono font-bold ${regContactNumber.length === 11 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      {regContactNumber.length === 11 ? '✓ 11 digits' : `${regContactNumber.length}/11`}
+                    </span>
+                  </div>
                   <input
-                    type="tel"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{11}"
+                    maxLength={11}
+                    minLength={11}
                     value={regContactNumber}
-                    onChange={(e) => setRegContactNumber(e.target.value.replace(/[^0-9+-\s]/g, ''))}
+                    onChange={(e) => setRegContactNumber(e.target.value.replace(/[^0-9]/g, '').slice(0, 11))}
                     required
-                    placeholder="e.g. 09171234567"
+                    placeholder="09171234567"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 focus:border-blue-600 rounded-xl text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white"
                   />
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    11-digit mobile number, numbers only
+                  </span>
                 </div>
               </div>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Clock, FileCheck, ShieldAlert, Sparkles, UserCheck } from 'lucide-react';
+import { CheckCircle2, Clock, FileCheck, ShieldAlert, Award, UserCheck } from 'lucide-react';
 import type { RequestStatus } from '../types';
 
 interface StatusPipelineProps {
@@ -38,7 +38,7 @@ export const StatusPipeline: React.FC<StatusPipelineProps> = ({
       id: 'for_signature',
       label: 'For Signature',
       desc: 'Punong Barangay digital seal',
-      icon: Sparkles,
+      icon: Award,
       date: signedAt
     },
     {

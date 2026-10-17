@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { AlertCircle, CheckCircle2, KeyRound, Lock, Mail, Shield, ShieldCheck, Sparkles, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  AlertCircle, CheckCircle2, KeyRound, Lock, Mail, Shield, ShieldCheck, 
+  X, Eye, EyeOff, ArrowRight, RefreshCw, Copy, Check, Sparkles
+} from 'lucide-react';
 import { apiClient } from '../lib/api';
 
 interface ForgotPasswordModalProps {
@@ -13,18 +16,38 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   onClose,
   onSuccess
 }) => {
-  const [step, setStep] = useState<'request' | 'verify'>('request');
+  const [step, setStep] = useState<'request' | 'verify' | 'success'>('request');
   const [identifier, setIdentifier] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
+  const [recipientEmail, setRecipientEmail] = useState<string>('');
   const [maskedEmail, setMaskedEmail] = useState<string>('');
+  const [emailDelivered, setEmailDelivered] = useState<boolean>(false);
+  const [emailError, setEmailError] = useState<string | undefined>();
   const [otpCode, setOtpCode] = useState<string>('');
   const [demoOtp, setDemoOtp] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
   
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [infoMsg, setInfoMsg] = useState<string>('');
+
+  // Password requirement flags
+  const isLengthValid = newPassword.length >= 8;
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword);
+  const doPasswordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
+
+  // Countdown timer for resend
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   if (!isOpen) return null;
 
@@ -32,44 +55,58 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setStep('request');
     setIdentifier('');
     setUserId('');
+    setRecipientEmail('');
     setMaskedEmail('');
+    setEmailDelivered(false);
+    setEmailError(undefined);
     setOtpCode('');
     setDemoOtp('');
     setNewPassword('');
     setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setErrorMsg('');
     setInfoMsg('');
+    setResendCooldown(0);
     onClose();
   };
 
-  const handleRequestOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRequestOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setErrorMsg('');
     setInfoMsg('');
 
-    if (!identifier.trim()) {
-      setErrorMsg('Please enter your registered Email address or Username.');
+    const cleanIdentifier = identifier.trim();
+    if (!cleanIdentifier) {
+      setErrorMsg('Please enter your registered Gmail address or username.');
       return;
     }
 
     setLoading(true);
-    const res = await apiClient.forgotPassword(identifier.trim());
+    const res = await apiClient.forgotPassword(cleanIdentifier);
     setLoading(false);
 
-    if (res.success) {
-      if (res.userFound && res.userId) {
-        setUserId(res.userId);
-        setMaskedEmail(res.maskedEmail || 'your registered Gmail');
-        if (res.demoOtp) {
-          setDemoOtp(res.demoOtp);
-        }
-        setStep('verify');
-        setInfoMsg(`A 6-digit security reset code has been dispatched to ${res.maskedEmail || 'your email'}.`);
-      } else {
-        setInfoMsg(res.message || 'If an account exists, a 6-digit reset code has been sent.');
+    if (res.success && res.userFound && res.userId) {
+      setUserId(res.userId);
+      setRecipientEmail(res.email || res.maskedEmail || '');
+      setMaskedEmail(res.maskedEmail || 'your registered Gmail');
+      setEmailDelivered(Boolean(res.emailDelivered));
+      setEmailError(res.emailError);
+      if (res.demoOtp) {
+        setDemoOtp(res.demoOtp);
       }
+      setOtpCode('');
+      setStep('verify');
+      setResendCooldown(30);
+      setInfoMsg(
+        res.emailDelivered
+          ? `A 6-digit security reset code has been sent directly to your Gmail inbox (${res.email || res.maskedEmail}). Please check your inbox or spam folder.`
+          : `A 6-digit security reset code has been generated for ${res.email || res.maskedEmail}.`
+      );
     } else {
-      setErrorMsg(res.error || 'Failed to dispatch password reset code.');
+      setErrorMsg(
+        res.error || res.message || `No registered account found matching "${cleanIdentifier}". Please verify your username or registered Gmail.`
+      );
     }
   };
 
@@ -78,23 +115,23 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setErrorMsg('');
     setInfoMsg('');
 
-    if (!otpCode.trim()) {
-      setErrorMsg('Please enter the 6-digit verification code sent to your email.');
+    const cleanCode = otpCode.replace(/[^0-9]/g, '').trim();
+    if (cleanCode.length !== 6) {
+      setErrorMsg('Please enter the complete 6-digit verification code.');
       return;
     }
 
-    if (newPassword.length < 8) {
+    if (!isLengthValid) {
       setErrorMsg('New password must be at least 8 characters long.');
       return;
     }
 
-    const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(newPassword);
-    if (!hasSpecial) {
+    if (!hasSpecialChar) {
       setErrorMsg('New password must contain at least one special character (e.g. ! @ # $ % ^ & *).');
       return;
     }
 
-    if (newPassword !== confirmPassword) {
+    if (!doPasswordsMatch) {
       setErrorMsg('New password and Confirm Password do not match.');
       return;
     }
@@ -102,61 +139,113 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setLoading(true);
     const res = await apiClient.resetPassword({
       userId,
-      otp: otpCode.trim(),
+      otp: cleanCode,
       newPassword
     });
     setLoading(false);
 
     if (res.success) {
+      setStep('success');
       onSuccess(res.message || 'Password successfully updated! You may now sign in.');
-      handleResetState();
     } else {
-      setErrorMsg(res.error || 'Failed to reset password. Please check your OTP code.');
+      setErrorMsg(res.error || 'Invalid or expired 6-digit verification code. Please check the code and try again.');
     }
   };
 
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleAutoFillCode = (code: string) => {
+    setOtpCode(code);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 font-sans">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200 font-sans">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
         
         {/* Header */}
-        <div className="bg-slate-900 text-white p-5 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-blue-600/30 border border-blue-400/40 text-blue-300 rounded-xl">
+        <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-950 text-white px-6 py-4 flex items-center justify-between border-b border-blue-900/40 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-300 shadow-inner">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Account Password Recovery</h3>
-              <p className="text-xs text-slate-300">IAS RFC-Compliant Email OTP Reset</p>
+              <h3 className="font-extrabold text-base text-white">Reset Account Password</h3>
+              <p className="text-xs text-blue-200/80">Official Self-Service Security Verification</p>
             </div>
           </div>
           <button
             onClick={handleResetState}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-4">
-          
-          {/* Security Standards Badge */}
-          <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-xs flex items-center gap-2 font-medium">
-            <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0" />
-            <span>Cryptographic OTP verification protects your account from unauthorized takeover.</span>
+        {/* 3-Step Clean Progress Bar */}
+        <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs shrink-0">
+          <div className="flex items-center gap-2">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
+              step === 'request'
+                ? 'bg-blue-600 text-white'
+                : 'bg-emerald-600 text-white'
+            }`}>
+              {step === 'request' ? '1' : '✓'}
+            </span>
+            <span className={`font-bold ${step === 'request' ? 'text-slate-900' : 'text-slate-600'}`}>
+              1. Enter Gmail
+            </span>
           </div>
 
+          <div className="w-8 h-0.5 bg-slate-300"></div>
+
+          <div className="flex items-center gap-2">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
+              step === 'verify'
+                ? 'bg-blue-600 text-white'
+                : step === 'success'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-200 text-slate-500'
+            }`}>
+              {step === 'success' ? '✓' : '2'}
+            </span>
+            <span className={`font-bold ${step === 'verify' ? 'text-slate-900' : 'text-slate-400'}`}>
+              2. 6-Digit Code
+            </span>
+          </div>
+
+          <div className="w-8 h-0.5 bg-slate-300"></div>
+
+          <div className="flex items-center gap-2">
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
+              step === 'success'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-200 text-slate-500'
+            }`}>
+              3
+            </span>
+            <span className={`font-bold ${step === 'success' ? 'text-emerald-700' : 'text-slate-400'}`}>
+              3. Done
+            </span>
+          </div>
+        </div>
+
+        {/* Content Body */}
+        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+          
           {/* Feedback Messages */}
           {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-start gap-2 font-medium">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {infoMsg && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-start gap-2 font-medium">
+          {infoMsg && step !== 'success' && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs flex items-start gap-2.5 font-medium animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <span>{infoMsg}</span>
             </div>
@@ -165,40 +254,58 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
           {/* STEP 1: REQUEST OTP */}
           {step === 'request' && (
             <form onSubmit={handleRequestOtp} className="space-y-4">
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl text-blue-900 text-xs flex items-start gap-2.5 font-medium">
+                <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block">Account Recovery Verification</span>
+                  <p className="text-[11px] text-blue-800 leading-relaxed">
+                    Enter the Gmail address or username you used when registering your account. A 6-digit security code will be sent to your Gmail inbox.
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Registered Email Address or Username
+                  Registered Gmail Address or Username *
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     required
+                    autoFocus
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="e.g. juan.delacruz@cabucbucan.gov.ph or juan.delacruz"
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="e.g. delacruzjohnirvin05@gmail.com or username"
+                    className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-500 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  A 6-digit one-time verification passcode will be dispatched to your registered Gmail address.
-                </p>
               </div>
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={handleResetState}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all disabled:opacity-50"
                 >
-                  {loading ? 'Sending Code...' : 'Send 6-Digit Reset Code'}
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Sending 6-Digit Code...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Send 6-Digit Code to Gmail</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -207,98 +314,217 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
           {/* STEP 2: VERIFY OTP & ENTER NEW PASSWORD */}
           {step === 'verify' && (
             <form onSubmit={handleVerifyAndReset} className="space-y-4">
+              
+              {/* Delivery Target Banner */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-blue-900 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Dispatched To:</span>
+                  </span>
+                  <span className="text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                    {emailDelivered ? 'Live Gmail SMTP' : 'Code Generated'}
+                  </span>
+                </div>
+                <div className="font-mono font-bold text-slate-900 text-xs">
+                  {recipientEmail || maskedEmail}
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Please check your Gmail inbox and spam/junk folder for your 6-digit security code.
+                </p>
+              </div>
+
+              {/* Evaluation / Quick Helper Code Box */}
               {demoOtp && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 text-xs space-y-1">
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl text-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                      IAS Email Simulator Dispatch:
+                    <span className="font-bold text-amber-950 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-amber-700" />
+                      <span>Security Code Generated:</span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode(demoOtp)}
-                      className="px-2 py-0.5 bg-amber-200 hover:bg-amber-300 text-amber-900 font-bold rounded text-[10px] cursor-pointer"
-                    >
-                      Auto-Fill Code
-                    </button>
+                    <span className="text-[10px] font-mono font-bold text-amber-800">10-Min Expiry</span>
                   </div>
-                  <p className="text-[11px] text-amber-900 leading-snug">
-                    Simulated Email dispatched to <strong>{maskedEmail}</strong>:
-                  </p>
-                  <div className="font-mono text-sm font-black text-amber-900 tracking-wider bg-amber-100/80 px-2.5 py-1 rounded text-center border border-amber-300">
-                    {demoOtp}
+                  
+                  <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                    <span className="font-mono text-xl font-black text-slate-900 tracking-[0.3em] select-all">
+                      {demoOtp}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCode(demoOtp)}
+                        className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        {copiedCode ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedCode ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAutoFillCode(demoOtp)}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-300" />
+                        <span>Auto-Fill</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
 
+              {/* 6-Digit Passcode Input Field */}
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  6-Digit Email Verification Code:
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Enter 6-Digit Verification Code *
+                  </label>
+                  <span className={`text-[10px] font-mono font-bold ${otpCode.length === 6 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {otpCode.length === 6 ? '✓ 6 digits' : `${otpCode.length}/6 digits`}
+                  </span>
+                </div>
                 <input
                   type="text"
-                  required
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
                   maxLength={6}
+                  required
                   value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="123456"
+                  onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  placeholder="------"
                   autoFocus
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-base font-mono font-bold text-center tracking-widest text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 focus:border-blue-600 rounded-xl text-xl font-mono font-black text-center tracking-[0.4em] text-slate-900 focus:bg-white focus:outline-none"
                 />
               </div>
 
+              {/* New Password Input */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  New Password (Min. 8 chars & 1 special char)
+                  New Password *
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
-                    type="password"
+                    type={showNewPassword ? 'text' : 'password'}
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="Enter at least 8 characters with 1 special symbol"
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-500 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                  >
+                    {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
 
+              {/* Confirm Password Input */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Confirm New Password
+                  Confirm New Password *
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    placeholder="Re-enter your new password"
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 focus:border-blue-500 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStep('request')}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-300 cursor-pointer"
-                >
-                  Back
-                </button>
+              {/* Password Requirement Checklist */}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                <div className={`flex items-center gap-1.5 ${isLengthValid ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                  <span>{isLengthValid ? '✓' : '•'}</span>
+                  <span>Minimum 8 characters</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${hasSpecialChar ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                  <span>{hasSpecialChar ? '✓' : '•'}</span>
+                  <span>Contains at least 1 special character (!@#$%^&*)</span>
+                </div>
+                <div className={`flex items-center gap-1.5 ${doPasswordsMatch ? 'text-emerald-700 font-bold' : 'text-slate-500'}`}>
+                  <span>{doPasswordsMatch ? '✓' : '•'}</span>
+                  <span>Passwords match</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep('request');
+                      setOtpCode('');
+                    }}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    Back
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={resendCooldown > 0 || loading}
+                    onClick={() => handleRequestOtp()}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 disabled:text-slate-400 cursor-pointer"
+                  >
+                    {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend Code'}
+                  </button>
+                </div>
+
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  disabled={loading || otpCode.length !== 6 || !isLengthValid || !hasSpecialChar || !doPasswordsMatch}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl flex items-center gap-2 cursor-pointer shadow-md transition-all disabled:opacity-50"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  <span>{loading ? 'Updating Password...' : 'Verify & Set New Password'}</span>
+                  <span>{loading ? 'Verifying & Saving...' : 'Confirm & Save Password'}</span>
                 </button>
               </div>
             </form>
+          )}
+
+          {/* STEP 3: SUCCESS CELEBRATION */}
+          {step === 'success' && (
+            <div className="py-6 text-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 border-2 border-emerald-300 text-emerald-600 flex items-center justify-center mx-auto shadow-md">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="text-base font-extrabold text-slate-900">
+                  Password Successfully Updated!
+                </h4>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto leading-relaxed">
+                  Your official account password has been cryptographically updated with salted BCrypt hashing and synced to the secure database.
+                </p>
+              </div>
+
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-900 font-medium">
+                You can now log in using your newly set password.
+              </div>
+
+              <button
+                type="button"
+                onClick={handleResetState}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Sign In With New Password</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           )}
 
         </div>

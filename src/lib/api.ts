@@ -1,4 +1,4 @@
-import type { AuditLog, ClearanceRequest, ClearanceType, ResidentProfile, SecurityStats, User, VerificationResult } from '../types';
+import type { AuditLog, ClearanceRequest, ClearanceType, NotificationRecord, ResidentProfile, SecurityStats, User, VerificationResult } from '../types';
 
 const TOKEN_KEY = 'barangay_auth_token';
 const USER_KEY = 'barangay_auth_user';
@@ -68,13 +68,47 @@ export const apiClient = {
   clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    try {
+      localStorage.removeItem('barangay_last_activity_time');
+    } catch {
+      // Ignore
+    }
+  },
+
+  async logout(reason: 'inactivity_timeout' | 'user_logout' = 'user_logout') {
+    try {
+      await makeRequest('/api/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      });
+    } catch {
+      // Ignore network errors during logout
+    } finally {
+      this.clearAuth();
+    }
   },
 
   // Auth
-  async login(username: string, password: string, mfaCode?: string) {
-    const res = await makeRequest<{ user: User; token: string; profile?: ResidentProfile; mfaRequired?: boolean; userId?: string }>('/api/auth/login', {
+  async login(username: string, password: string, mfaCode?: string, destinationEmail?: string) {
+    const res = await makeRequest<{
+      user?: User;
+      token?: string;
+      profile?: ResidentProfile;
+      mfaRequired?: boolean;
+      userId?: string;
+      username?: string;
+      role?: string;
+      fullName?: string;
+      email?: string;
+      maskedEmail?: string;
+      mfaType?: 'gmail' | 'totp' | 'both';
+      emailDelivered?: boolean;
+      emailError?: string;
+      demoOtp?: string;
+      message?: string;
+    }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password, mfaCode })
+      body: JSON.stringify({ username, password, mfaCode, destinationEmail })
     });
 
     if (res.success && res.token && res.user) {
@@ -99,6 +133,95 @@ export const apiClient = {
     return res;
   },
 
+  async resendMfaOtp(data: { userId?: string; username?: string; destinationEmail?: string }) {
+    return makeRequest<{
+      email: string;
+      maskedEmail: string;
+      emailDelivered?: boolean;
+      emailError?: string;
+      demoOtp?: string;
+      expiresInMinutes: number;
+      message: string;
+    }>('/api/auth/resend-mfa-otp', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async sendMfaSetupCode(destinationEmail?: string) {
+    return makeRequest<{
+      email: string;
+      maskedEmail: string;
+      emailDelivered?: boolean;
+      emailError?: string;
+      demoOtp?: string;
+      expiresInMinutes: number;
+      message: string;
+    }>('/api/auth/mfa/send-setup-code', {
+      method: 'POST',
+      body: JSON.stringify({ destinationEmail })
+    });
+  },
+
+  async getEmailSettings() {
+    return makeRequest<{
+      configured: boolean;
+      provider: string;
+      sender: string | null;
+      host: string;
+      port: number;
+      hasEnvCredentials: boolean;
+      hasDbCredentials: boolean;
+      forwardingEmail: string;
+      forwardAllMfaToAdmin: boolean;
+    }>('/api/email/settings');
+  },
+
+  async saveEmailSettings(settings: {
+    gmailUser?: string;
+    gmailAppPassword?: string;
+    sendgridApiKey?: string;
+    forwardingEmail?: string;
+    forwardAllMfaToAdmin?: boolean;
+  }) {
+    return makeRequest<{
+      message: string;
+      configured: boolean;
+      provider: string;
+      host: string;
+      port: number;
+    }>('/api/email/settings', {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  async testEmailConnection(recipientEmail?: string) {
+    return makeRequest<{
+      delivered: boolean;
+      message: string;
+      messageId?: string;
+      error?: string;
+      provider: string;
+      host: string;
+      port: number;
+    }>('/api/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ recipientEmail })
+    });
+  },
+
+  async updateAccountEmail(email: string) {
+    return makeRequest<{
+      message: string;
+      email: string;
+      user: any;
+    }>('/api/auth/update-email', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  },
+
   async setupMfa() {
     return makeRequest<{
       secret: string;
@@ -110,10 +233,10 @@ export const apiClient = {
     });
   },
 
-  async enableMfa(secret: string, token: string, backupCodes: string[]) {
-    return makeRequest<{ message: string }>('/api/auth/mfa/enable', {
+  async enableMfa(secret: string, token: string, backupCodes: string[], mfaType: 'gmail' | 'totp' = 'gmail') {
+    return makeRequest<{ message: string; backupCodes?: string[] }>('/api/auth/mfa/enable', {
       method: 'POST',
-      body: JSON.stringify({ secret, token, backupCodes })
+      body: JSON.stringify({ secret, token, backupCodes, mfaType })
     });
   },
 
@@ -124,18 +247,21 @@ export const apiClient = {
     });
   },
 
-  async forgotPassword(identifier: string) {
+  async forgotPassword(identifier: string, destinationEmail?: string) {
     return makeRequest<{
       userFound: boolean;
       userId?: string;
+      email?: string;
       maskedEmail?: string;
       username?: string;
+      emailDelivered?: boolean;
+      emailError?: string;
       demoOtp?: string;
       expiresInMinutes?: number;
       message: string;
     }>('/api/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify({ identifier })
+      body: JSON.stringify({ identifier, destinationEmail })
     });
   },
 
@@ -195,11 +321,15 @@ export const apiClient = {
     firstName: string;
     middleName?: string;
     lastName: string;
-    birthDate: string;
-    streetAddress: string;
-    purokZone: string;
-    contactNumber: string;
-    idNumber: string;
+    suffix?: string;
+    birthDate?: string;
+    streetAddress?: string;
+    purokZone?: string;
+    contactNumber?: string;
+    idType?: string;
+    idNumber?: string;
+    idPhotoUrl?: string;
+    idPhotoName?: string;
     civilStatus?: string;
     gender?: string;
     yearsOfResidency?: number;
@@ -242,6 +372,10 @@ export const apiClient = {
   async getClearances(status?: string) {
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
     return makeRequest<ClearanceRequest[]>(`/api/clearances${query}`);
+  },
+
+  async getNotifications() {
+    return makeRequest<NotificationRecord[]>('/api/notifications');
   },
 
   async getClearanceById(id: string) {
@@ -319,11 +453,115 @@ export const apiClient = {
     return makeRequest<{ dialect: string; ddl: string }>(`/api/schema/ddl?dialect=${dialect}`);
   },
 
+  // Database Credentials Storage Audit (Advance Database & IAS alignment)
+  async getDatabaseCredentialsAudit() {
+    return makeRequest<{
+      standard: string;
+      records: Array<{
+        id: string;
+        username: string;
+        role: string;
+        fullName: string;
+        passwordStorageType: string;
+        passwordHash: string;
+        isBackendInfrastructureOnly: boolean;
+        plaintextStored: boolean;
+        atRestEncryption: string;
+        sampleEncryptedCiphertext: string;
+        createdAt: string;
+        lastLogin?: string;
+      }>;
+    }>('/api/db/credentials-audit');
+  },
+
   // IAS Security Live Probes
-  async testSecurityProbe(probeType: 'sqli' | 'xss' | 'tamper', payload: any) {
+  async testSecurityProbe(probeType: 'sqli' | 'xss' | 'tamper' | 'encryption' | 'password-hash', payload: any) {
     return makeRequest<any>('/api/security/test-probe', {
       method: 'POST',
       body: JSON.stringify({ probeType, payload })
     });
+  },
+
+  // Information Assurance Database Encryption Status & Sample
+  async getEncryptionStatus() {
+    return makeRequest<{
+      status: string;
+      algorithm: string;
+      keyLengthBits: number;
+      ivLengthBits: number;
+      authTagBits: number;
+      keyFingerprint: string;
+      standard: string;
+      regulatoryCompliance: string;
+      encryptedAtRest: boolean;
+      encryptedEntities: any;
+    }>('/api/admin/encryption/status');
+  },
+
+  async getEncryptionSample() {
+    return makeRequest<{
+      userId: string;
+      username: string;
+      fullName: string;
+      atRestEncryptedFields: Record<string, string>;
+      inMemoryDecryptedFields: Record<string, string>;
+      algorithm: string;
+      cipherFormat: string;
+      keyFingerprint: string;
+    }>('/api/admin/encryption/sample');
+  },
+
+  // Gmail SMTP Status & Diagnostics
+  async getEmailStatus() {
+    return makeRequest<{
+      emailConfigured: boolean;
+      sender: string | null;
+      host: string;
+      port: number;
+      mode: 'LIVE_SMTP' | 'DEMO_SIMULATION';
+      guidance: string;
+    }>('/api/system/email-status');
+  },
+
+  async testSendEmail(toEmail?: string) {
+    return makeRequest<{
+      target: string;
+      testOtp: string;
+      delivered: boolean;
+      simulated?: boolean;
+      error?: string;
+      messageId?: string;
+      message: string;
+    }>('/api/system/test-email', {
+      method: 'POST',
+      body: JSON.stringify({ toEmail })
+    });
+  },
+
+  // Resident ID Verification Management (Staff & Resident)
+  async getStaffResidents() {
+    return makeRequest<{
+      data: import('../types.js').ResidentVerificationRecord[];
+      counts: { total: number; pending: number; verified: number; rejected: number };
+    }>('/api/staff/residents');
+  },
+
+  async verifyResident(id: string, decision: 'verified' | 'rejected', remarks: string) {
+    return makeRequest<{ data: any; profile: any }>(`/api/staff/residents/${id}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, remarks })
+    });
+  },
+
+  async resubmitResidentId(data: { idPhotoUrl: string; idPhotoName?: string; idType?: string; idNumber?: string }) {
+    return makeRequest<{ user: User; profile: ResidentProfile }>('/api/resident/resubmit-id', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  // Cybersecurity Administration & System Diagnostics
+  async getDiagnostics() {
+    return makeRequest<any>('/api/admin/diagnostics');
   }
 };
