@@ -3,7 +3,8 @@ import {
   getFirestore,
   doc,
   setDoc,
-  collection
+  collection,
+  getDocs
 } from 'firebase/firestore';
 import fs from 'fs';
 import path from 'path';
@@ -67,17 +68,7 @@ export function getFirebaseSyncStatus() {
 /**
  * Synchronizes user authentication & profile record to Firebase Firestore in real time
  */
-export async function syncUserToFirestore(user: {
-  id: string;
-  email: string;
-  username: string;
-  full_name?: string;
-  fullName?: string;
-  role: string;
-  status?: string;
-  lastLogin?: string;
-  lastIp?: string;
-}) {
+export async function syncUserToFirestore(user: any) {
   const event = {
     id: user.id,
     collection: 'users',
@@ -85,7 +76,7 @@ export async function syncUserToFirestore(user: {
     action: 'USER_SYNC',
     title: `User '${user.username}' Authenticated / Active`,
     details: `Role: ${user.role} • Email: ${user.email} • IP: ${user.lastIp || '127.0.0.1'}`,
-    actorName: user.full_name || user.username,
+    actorName: user.full_name || user.fullName || user.username,
     timestamp: new Date().toISOString()
   };
   recordEvent(event);
@@ -93,20 +84,55 @@ export async function syncUserToFirestore(user: {
   if (!dbInstance) return;
   try {
     const userRef = doc(dbInstance, 'users', user.id);
-    await setDoc(userRef, {
+    const firestoreData: any = {
       id: user.id,
       email: user.email,
       username: user.username,
       fullName: user.full_name || user.fullName || user.username,
       role: user.role,
-      status: user.status || 'active',
-      lastLogin: user.lastLogin || new Date().toISOString(),
+      status: user.verification_status || user.status || 'active',
+      isVerifiedResident: Boolean(user.is_verified_resident),
+      lastLogin: user.lastLogin || user.last_login || new Date().toISOString(),
       lastIp: user.lastIp || '127.0.0.1',
       syncedAt: new Date().toISOString()
-    }, { merge: true });
+    };
+
+    if (user.password_hash) firestoreData.password_hash = user.password_hash;
+    if (user.contact_number) firestoreData.contact_number = user.contact_number;
+    if (user.address) firestoreData.address = user.address;
+    if (user.purok) firestoreData.purok = user.purok;
+    if (user.id_type) firestoreData.id_type = user.id_type;
+    if (user.id_number) firestoreData.id_number = user.id_number;
+    if (user.id_photo_url) firestoreData.id_photo_url = user.id_photo_url;
+    if (user.id_photo_name) firestoreData.id_photo_name = user.id_photo_name;
+    if (user.mfa_enabled !== undefined) firestoreData.mfa_enabled = user.mfa_enabled;
+    if (user.mfa_required !== undefined) firestoreData.mfa_required = user.mfa_required;
+
+    await setDoc(userRef, firestoreData, { merge: true });
     console.info(`[Firebase Sync] Synced user '${user.username}' (${user.id}) to Firestore`);
   } catch (err) {
-    console.error('[Firebase Sync] Error syncing user:', err);
+    console.error('[Firebase Sync] Error syncing user to Firestore:', err);
+  }
+}
+
+/**
+ * Loads all user accounts stored in Firestore into memory/local database
+ */
+export async function fetchAllUsersFromFirestore(): Promise<any[]> {
+  if (!dbInstance) return [];
+  try {
+    const snap = await getDocs(collection(dbInstance, 'users'));
+    const list: any[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data && data.username && !docSnap.id.startsWith('audit-')) {
+        list.push({ id: docSnap.id, ...data });
+      }
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firebase Sync] Could not fetch users from Firestore:', err);
+    return [];
   }
 }
 

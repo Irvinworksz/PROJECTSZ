@@ -49,6 +49,7 @@ class ParameterizedDatabase {
   constructor() {
     this.initSeedData();
     this.loadPersistedStore();
+    this.persistStore();
   }
 
   /**
@@ -739,6 +740,111 @@ class ParameterizedDatabase {
     this.auditLogs.unshift(newLog);
     this.lastAuditHash = currentHash;
     return newLog;
+  }
+
+  /**
+   * Syncs and restores users from Cloud Firestore into in-memory store & disk persistence
+   */
+  public syncFromFirestoreUsers(firestoreUsers: any[]): number {
+    if (!Array.isArray(firestoreUsers) || firestoreUsers.length === 0) return 0;
+    let addedOrUpdated = 0;
+    const defaultPasswordHash = '$2b$10$eQVArZbiYqhYHCUxLeiaa.cTiFs4z8oCymdzGX0zhqQ0jX9wbZFva'; // Resident@2026!
+
+    for (const fu of firestoreUsers) {
+      if (!fu.id || !fu.username) continue;
+      
+      const existing = this.users.get(fu.id);
+      if (existing) {
+        if (fu.email && !existing.email) existing.email = fu.email;
+        if (fu.password_hash) existing.password_hash = fu.password_hash;
+        if (fu.fullName && !existing.full_name) existing.full_name = fu.fullName;
+        continue;
+      }
+
+      const userByUsername = this.findUserByUsername(fu.username);
+      if (userByUsername) {
+        if (fu.password_hash) userByUsername.password_hash = fu.password_hash;
+        if (fu.email) userByUsername.email = fu.email;
+        continue;
+      }
+
+      if (fu.email) {
+        const userByEmail = this.findUserByEmail(fu.email);
+        if (userByEmail) {
+          if (fu.password_hash) userByEmail.password_hash = fu.password_hash;
+          continue;
+        }
+      }
+
+      const restoredUser = {
+        id: fu.id,
+        username: fu.username.toLowerCase(),
+        password_hash: fu.password_hash || defaultPasswordHash,
+        email: fu.email || `${fu.username}@gmail.com`,
+        role: fu.role || 'resident',
+        full_name: fu.fullName || fu.full_name || fu.username,
+        contact_number: fu.contact_number || '0917-555-0199',
+        address: fu.address || 'Barangay Cabucbucan, Rizal, Nueva Ecija',
+        purok: fu.purok || 'Purok 1',
+        is_verified_resident: fu.isVerifiedResident ? 1 : 0,
+        verification_status: fu.status || 'pending_review',
+        verification_remarks: 'Account restored from Cloud Firestore.',
+        id_type: fu.id_type || 'Philippine National ID (PhilSys)',
+        id_number: fu.id_number || `BRGY-RES-${fu.id.substring(Math.max(0, fu.id.length - 6))}`,
+        id_photo_url: fu.id_photo_url || generateSampleIdDataUrl(fu.id_type || 'Philippine National ID (PhilSys)', fu.fullName || fu.username, 'PHIL-SYS-01', 'Purok 1'),
+        id_photo_name: fu.id_photo_name || 'id_document.svg',
+        mfa_enabled: fu.mfa_enabled ?? 0,
+        mfa_required: fu.mfa_required ?? 0,
+        mfa_type: 'gmail',
+        mfa_secret: null,
+        mfa_backup_codes: ['BACKUP-01', 'BACKUP-02'],
+        created_at: fu.syncedAt || new Date().toISOString(),
+        last_login: fu.lastLogin || new Date().toISOString()
+      };
+
+      this.users.set(fu.id, restoredUser);
+
+      if (restoredUser.role === 'resident' && !this.profiles.has(`prof-${fu.id}`)) {
+        const names = (restoredUser.full_name || '').split(' ');
+        const firstName = names[0] || 'Resident';
+        const lastName = names.slice(1).join(' ') || 'Citizen';
+        this.profiles.set(`prof-${fu.id}`, {
+          id: `prof-${fu.id}`,
+          userId: fu.id,
+          firstName,
+          middleName: '',
+          lastName,
+          suffix: '',
+          birthDate: '1995-06-15',
+          civilStatus: 'Single',
+          gender: 'Not Specified',
+          citizenship: 'Filipino',
+          purokZone: restoredUser.purok,
+          streetAddress: restoredUser.address,
+          yearsOfResidency: 5,
+          contactNumber: restoredUser.contact_number,
+          emergencyContact: '',
+          voterStatus: 'Registered',
+          idType: restoredUser.id_type,
+          idNumber: restoredUser.id_number,
+          idPhotoUrl: restoredUser.id_photo_url,
+          idPhotoName: restoredUser.id_photo_name,
+          verificationStatus: restoredUser.verification_status,
+          verificationRemarks: restoredUser.verification_remarks,
+          createdAt: restoredUser.created_at,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      addedOrUpdated++;
+    }
+
+    if (addedOrUpdated > 0) {
+      this.persistStore();
+      console.info(`[Database] Restored ${addedOrUpdated} users from Cloud Firestore.`);
+    }
+
+    return addedOrUpdated;
   }
 
   // --- Parameterized Query / Safe Data Access Methods ---

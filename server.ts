@@ -24,7 +24,8 @@ import {
   syncAuditLogToFirestore,
   dispatchTestSyncPing,
   seedAllUsersToFirestore,
-  runFullAuthSyncTest
+  runFullAuthSyncTest,
+  fetchAllUsersFromFirestore
 } from './src/server/firebaseSync.js';
 
 function formatUserResponse(user: any, profile?: any) {
@@ -147,7 +148,20 @@ async function startServer() {
       }
 
       // Safe Parameterized Query lookup (supports either username or email address)
-      const user = db.findUserByEmailOrUsername(cleanIdentifier);
+      let user = db.findUserByEmailOrUsername(cleanIdentifier);
+
+      // Fallback: If not found in memory, query Cloud Firestore to restore any persistent user
+      if (!user) {
+        try {
+          const cloudUsers = await fetchAllUsersFromFirestore();
+          if (cloudUsers && cloudUsers.length > 0) {
+            db.syncFromFirestoreUsers(cloudUsers);
+            user = db.findUserByEmailOrUsername(cleanIdentifier);
+          }
+        } catch (err) {
+          console.warn('[Login] Firestore fallback lookup warning:', err);
+        }
+      }
 
       if (!user) {
         RateLimiter.recordFailedAuth(cleanIdentifier);
@@ -193,8 +207,9 @@ async function startServer() {
       }
 
       // Two-Factor Authentication (MFA / 2FA): Mandatory for administrative personnel (Staff, Official, Admin),
-      // or for residents who have explicitly enabled 2FA in their security settings.
-      const isMfaEnabled = Boolean(user.mfa_enabled) || user.role === 'staff' || user.role === 'official' || user.role === 'admin';
+      // and only active for residents if they have explicitly enabled and required 2FA in security settings.
+      const isMfaEnabled = (user.role === 'staff' || user.role === 'official' || user.role === 'admin') ||
+        (user.role === 'resident' && Boolean(user.mfa_enabled) && Boolean(user.mfa_required));
       const { mfaCode, destinationEmail } = req.body;
 
       // Determine recipient email: user's registered email or optional testing destination email
@@ -841,9 +856,8 @@ async function startServer() {
         id_type: cleanIdType,
         id_number: cleanIdNumber,
         id_photo_url: cleanIdPhotoUrl,
-        id_photo_name: cleanIdPhotoName,
-        mfa_enabled: 1,
-        mfa_required: 1,
+        mfa_enabled: 0,
+        mfa_required: 0,
         mfa_type: 'gmail',
         mfa_secret: null,
         mfa_backup_codes: generateBackupCodes(8),
@@ -853,16 +867,7 @@ async function startServer() {
 
       db.createUser(newUser);
 
-      syncUserToFirestore({
-        id: newUser.id,
-        email: newUser.email,
-        username: newUser.username,
-        full_name: newUser.full_name,
-        role: newUser.role,
-        status: newUser.verification_status,
-        lastLogin: newUser.last_login,
-        lastIp: clientIp
-      }).catch(console.error);
+      syncUserToFirestore(newUser).catch(console.error);
 
       const newProfile = {
         id: `prof-${userId}`,
@@ -1891,6 +1896,18 @@ async function startServer() {
       const cleanEmail = email.trim().toLowerCase();
       let user = db.findUserByEmail(cleanEmail);
       let profile: any = null;
+
+      if (!user) {
+        try {
+          const cloudUsers = await fetchAllUsersFromFirestore();
+          if (cloudUsers && cloudUsers.length > 0) {
+            db.syncFromFirestoreUsers(cloudUsers);
+            user = db.findUserByEmail(cleanEmail);
+          }
+        } catch (e) {
+          console.warn('[Google Auth] Firestore lookup error:', e);
+        }
+      }
 
       if (!user) {
         // Auto-provision resident account for new Google Sign-In user

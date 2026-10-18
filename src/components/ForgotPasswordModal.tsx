@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   AlertCircle, CheckCircle2, KeyRound, Lock, Mail, Shield, ShieldCheck, 
-  X, Eye, EyeOff, ArrowRight, RefreshCw, Copy, Check, Sparkles
+  X, Eye, EyeOff, ArrowRight, RefreshCw
 } from 'lucide-react';
 import { apiClient } from '../lib/api';
 
@@ -150,16 +150,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     } else {
       setErrorMsg(res.error || 'Invalid or expired 6-digit verification code. Please check the code and try again.');
     }
-  };
-
-  const handleCopyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
-
-  const handleAutoFillCode = (code: string) => {
-    setOtpCode(code);
   };
 
   return (
@@ -316,60 +306,23 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <form onSubmit={handleVerifyAndReset} className="space-y-4">
               
               {/* Delivery Target Banner */}
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-1">
+              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-blue-900 flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5 text-blue-600" />
                     <span>Dispatched To:</span>
                   </span>
                   <span className="text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                    {emailDelivered ? 'Live Gmail SMTP' : 'Code Generated'}
+                    {emailDelivered ? 'Gmail Delivered' : 'Security Code Sent'}
                   </span>
                 </div>
                 <div className="font-mono font-bold text-slate-900 text-xs">
                   {recipientEmail || maskedEmail}
                 </div>
-                <p className="text-[11px] text-slate-600">
-                  Please check your Gmail inbox and spam/junk folder for your 6-digit security code.
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Please check your Gmail inbox and spam/junk folder for your official 6-digit verification code.
                 </p>
               </div>
-
-              {/* Evaluation / Quick Helper Code Box */}
-              {demoOtp && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl text-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-amber-950 flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-amber-700" />
-                      <span>Security Code Generated:</span>
-                    </span>
-                    <span className="text-[10px] font-mono font-bold text-amber-800">10-Min Expiry</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
-                    <span className="font-mono text-xl font-black text-slate-900 tracking-[0.3em] select-all">
-                      {demoOtp}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCode(demoOtp)}
-                        className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        {copiedCode ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedCode ? 'Copied' : 'Copy'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleAutoFillCode(demoOtp)}
-                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        <span>Auto-Fill</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* 6-Digit Passcode Input Field */}
               <div>
