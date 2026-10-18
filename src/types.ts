@@ -22,6 +22,14 @@ export interface User {
   email: string;
   role: UserRole;
   fullName: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  suffix?: string;
+  birthDate?: string;
+  civilStatus?: string;
+  gender?: string;
+  yearsOfResidency?: number;
   contactNumber: string;
   address: string;
   purok: string;
@@ -114,8 +122,13 @@ export interface ResidentVerificationRecord {
   userId: string;
   username: string;
   fullName: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  suffix?: string;
   email: string;
   contactNumber: string;
+  emergencyContact?: string;
   purokZone: string;
   streetAddress: string;
   yearsOfResidency: number;

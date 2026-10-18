@@ -133,6 +133,20 @@ export const apiClient = {
     return res;
   },
 
+  async googleFastLogin(data: { email: string; displayName?: string; photoURL?: string }) {
+    const res = await makeRequest<{ user: User; token: string; profile?: ResidentProfile }>('/api/auth/google-fast-login', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+
+    if (res.success && res.token && res.user) {
+      this.setToken(res.token);
+      this.setStoredUser(res.user);
+    }
+
+    return res;
+  },
+
   async resendMfaOtp(data: { userId?: string; username?: string; destinationEmail?: string }) {
     return makeRequest<{
       email: string;

@@ -107,11 +107,62 @@ export async function syncUserToFirestore(user: any) {
     if (user.id_photo_name) firestoreData.id_photo_name = user.id_photo_name;
     if (user.mfa_enabled !== undefined) firestoreData.mfa_enabled = user.mfa_enabled;
     if (user.mfa_required !== undefined) firestoreData.mfa_required = user.mfa_required;
+    if (user.first_name || user.firstName) firestoreData.firstName = user.first_name || user.firstName;
+    if (user.middle_name || user.middleName) firestoreData.middleName = user.middle_name || user.middleName;
+    if (user.last_name || user.lastName) firestoreData.lastName = user.last_name || user.lastName;
+    if (user.suffix) firestoreData.suffix = user.suffix;
+    if (user.birth_date || user.birthDate) firestoreData.birthDate = user.birth_date || user.birthDate;
+    if (user.civil_status || user.civilStatus) firestoreData.civilStatus = user.civil_status || user.civilStatus;
+    if (user.gender) firestoreData.gender = user.gender;
+    if (user.years_of_residency || user.yearsOfResidency) firestoreData.yearsOfResidency = user.years_of_residency || user.yearsOfResidency;
 
     await setDoc(userRef, firestoreData, { merge: true });
     console.info(`[Firebase Sync] Synced user '${user.username}' (${user.id}) to Firestore`);
   } catch (err) {
     console.error('[Firebase Sync] Error syncing user to Firestore:', err);
+  }
+}
+
+/**
+ * Synchronizes extended resident profile (all personal registration details) to Cloud Firestore in real time
+ */
+export async function syncProfileToFirestore(profile: any) {
+  if (!dbInstance || !profile) return;
+  const targetId = profile.userId || profile.id;
+  if (!targetId) return;
+
+  try {
+    const profileRef = doc(dbInstance, 'profiles', targetId);
+    await setDoc(profileRef, {
+      id: profile.id || `prof-${targetId}`,
+      userId: targetId,
+      firstName: profile.firstName || '',
+      middleName: profile.middleName || '',
+      lastName: profile.lastName || '',
+      suffix: profile.suffix || '',
+      birthDate: profile.birthDate || '1995-06-15',
+      civilStatus: profile.civilStatus || 'Single',
+      gender: profile.gender || 'Not Specified',
+      citizenship: profile.citizenship || 'Filipino',
+      purokZone: profile.purokZone || profile.purok || 'Purok 1',
+      streetAddress: profile.streetAddress || profile.address || '',
+      yearsOfResidency: Number(profile.yearsOfResidency) || 5,
+      contactNumber: profile.contactNumber || profile.contact_number || '',
+      emergencyContact: profile.emergencyContact || '',
+      voterStatus: profile.voterStatus || 'Registered',
+      idType: profile.idType || profile.id_type || 'Philippine National ID (PhilSys)',
+      idNumber: profile.idNumber || profile.id_number || '',
+      idPhotoUrl: profile.idPhotoUrl || profile.id_photo_url || '',
+      idPhotoName: profile.idPhotoName || profile.id_photo_name || '',
+      verificationStatus: profile.verificationStatus || profile.verification_status || 'pending_review',
+      verificationRemarks: profile.verificationRemarks || profile.verification_remarks || '',
+      reviewedByStaffName: profile.reviewedByStaffName || profile.reviewed_by || '',
+      reviewedAt: profile.reviewedAt || profile.reviewed_at || '',
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+    console.info(`[Firebase Sync] Synced resident profile '${profile.firstName || ''} ${profile.lastName || ''}' (${targetId}) to Firestore`);
+  } catch (err) {
+    console.error('[Firebase Sync] Error syncing profile to Firestore:', err);
   }
 }
 
@@ -133,6 +184,57 @@ export async function fetchAllUsersFromFirestore(): Promise<any[]> {
   } catch (err) {
     console.warn('[Firebase Sync] Could not fetch users from Firestore:', err);
     return [];
+  }
+}
+
+/**
+ * Loads all resident personal profiles stored in Firestore
+ */
+export async function fetchAllProfilesFromFirestore(): Promise<any[]> {
+  if (!dbInstance) return [];
+  try {
+    const snap = await getDocs(collection(dbInstance, 'profiles'));
+    const list: any[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data && (data.userId || data.firstName || data.fullName)) {
+        list.push({ id: docSnap.id, ...data });
+      }
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firebase Sync] Could not fetch profiles from Firestore:', err);
+    return [];
+  }
+}
+
+/**
+ * Eagerly restores all user accounts and profiles from Cloud Firestore on server startup
+ */
+export async function syncAllDataOnServerBoot(database: any): Promise<{ usersRestored: number; profilesRestored: number }> {
+  try {
+    const [cloudUsers, cloudProfiles] = await Promise.all([
+      fetchAllUsersFromFirestore(),
+      fetchAllProfilesFromFirestore()
+    ]);
+
+    let usersRestored = 0;
+    let profilesRestored = 0;
+
+    if (cloudUsers && cloudUsers.length > 0) {
+      usersRestored = database.syncFromFirestoreUsers(cloudUsers);
+      console.info(`[Firebase Sync Boot] Eagerly synced ${usersRestored} accounts from Cloud Firestore.`);
+    }
+
+    if (cloudProfiles && cloudProfiles.length > 0) {
+      profilesRestored = database.syncFromFirestoreProfiles(cloudProfiles);
+      console.info(`[Firebase Sync Boot] Eagerly synced ${profilesRestored} profiles from Cloud Firestore.`);
+    }
+
+    return { usersRestored, profilesRestored };
+  } catch (e) {
+    console.warn('[Firebase Sync Boot] Eager boot sync notice:', e);
+    return { usersRestored: 0, profilesRestored: 0 };
   }
 }
 

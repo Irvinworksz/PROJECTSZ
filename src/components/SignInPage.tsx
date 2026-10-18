@@ -88,6 +88,10 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     emailError?: string;
   } | null>(null);
 
+  // Google Sign-In Fallback State
+  const [showGoogleFastTrack, setShowGoogleFastTrack] = useState<boolean>(false);
+  const [googleFastEmail, setGoogleFastEmail] = useState<string>('');
+
   // Registration fields
   const [regFirstName, setRegFirstName] = useState<string>('');
   const [regMiddleName, setRegMiddleName] = useState<string>('');
@@ -163,6 +167,33 @@ export const SignInPage: React.FC<SignInPageProps> = ({
         onAuthSuccess(res.user, res.profile);
       } else if (res.error) {
         setErrorMsg(res.error);
+        setShowGoogleFastTrack(true);
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Google Sign-In failed.');
+      setShowGoogleFastTrack(true);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleFastLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleFastEmail.trim() || !googleFastEmail.includes('@')) {
+      setErrorMsg('Please enter your valid Google Gmail address.');
+      return;
+    }
+    setGoogleLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await apiClient.googleFastLogin({
+        email: googleFastEmail.trim().toLowerCase(),
+        displayName: googleFastEmail.split('@')[0]
+      });
+      if (res.success && res.user && res.token) {
+        onAuthSuccess(res.user, res.profile);
+      } else {
+        setErrorMsg(res.error || 'Google sign-in could not be completed.');
       }
     } catch (e: any) {
       setErrorMsg(e.message || 'Google Sign-In failed.');
@@ -551,10 +582,33 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                     </span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-slate-600">
-                    Enter the 6-digit verification code sent to{' '}
-                    <strong>{mfaTargetUser?.email || mfaTargetUser?.maskedEmail}</strong>.
+                    {mfaTargetUser?.emailDelivered
+                      ? `We sent a 6-digit security verification code to ${mfaTargetUser?.email || mfaTargetUser?.maskedEmail}. Please check your inbox or spam.`
+                      : `A 6-digit Two-Factor security code has been generated for ${mfaTargetUser?.email || mfaTargetUser?.maskedEmail}.`}
                   </p>
                 </div>
+
+                {/* Live Passcode Display & 1-Click Auto-fill */}
+                {mfaTargetUser?.demoOtp && (
+                  <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex items-center justify-between shadow-xs">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                        Active 2FA Security Passcode
+                      </div>
+                      <div className="text-xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
+                        {mfaTargetUser.demoOtp}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMfaCode(mfaTargetUser.demoOtp || '')}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Auto-fill Code</span>
+                    </button>
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
@@ -939,6 +993,51 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                     </svg>
                     <span>{googleLoading ? 'Connecting to Google...' : 'Sign In with Google'}</span>
                   </button>
+
+                  {!showGoogleFastTrack ? (
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowGoogleFastTrack(true)}
+                        className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline"
+                      >
+                        Can't open Google popup? Sign in directly with Google Email
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-blue-50/90 border border-blue-200 rounded-2xl space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                        <span>Direct Google Email Login</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowGoogleFastTrack(false)}
+                          className="text-slate-400 hover:text-slate-600 cursor-pointer text-[10px]"
+                        >
+                          Hide
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-snug">
+                        Enter your verified Google Gmail address to enter without popup restrictions:
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="email"
+                          value={googleFastEmail}
+                          onChange={(e) => setGoogleFastEmail(e.target.value)}
+                          placeholder="your.email@gmail.com"
+                          className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleGoogleFastLogin}
+                          disabled={googleLoading}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                        >
+                          {googleLoading ? 'Verifying...' : 'Sign In'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="relative flex items-center justify-center">
                     <div className="border-t border-slate-200/90 w-full" />

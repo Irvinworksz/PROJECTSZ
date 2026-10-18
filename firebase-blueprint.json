@@ -8,12 +8,27 @@
         "id": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "fullName": { "type": "string" },
-        "role": { "type": "string", "enum": ["resident", "staff", "captain", "admin"] },
+        "role": { "type": "string", "enum": ["resident", "staff", "captain", "admin", "official"] },
         "status": { "type": "string", "enum": ["pending", "active", "rejected", "suspended"] },
         "createdAt": { "type": "string" },
         "lastLogin": { "type": "string" }
       },
       "required": ["id", "email", "fullName", "role", "status"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "Resident personal census and official identification details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "purokZone": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "firstName", "lastName"]
     },
     "ClearanceRequest": {
       "title": "ClearanceRequest",
@@ -30,6 +45,19 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "residentId", "residentName", "type", "purpose", "status"]
+    },
+    "MfaDispatch": {
+      "title": "MfaDispatch",
+      "description": "Two-factor authentication passcode dispatch and delivery event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "otpCode": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "otpCode", "status"]
     },
     "AuditLog": {
       "title": "AuditLog",
@@ -69,9 +97,17 @@
       "schema": { "$ref": "#/entities/User" },
       "description": "User accounts and role metadata"
     },
+    "/profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/Profile" },
+      "description": "Resident personal census and official identification details"
+    },
     "/clearanceRequests/{requestId}": {
       "schema": { "$ref": "#/entities/ClearanceRequest" },
       "description": "Clearance requests with status workflow"
+    },
+    "/mfaDispatches/{dispatchId}": {
+      "schema": { "$ref": "#/entities/MfaDispatch" },
+      "description": "Two-factor security code dispatches"
     },
     "/auditLogs/{auditId}": {
       "schema": { "$ref": "#/entities/AuditLog" },

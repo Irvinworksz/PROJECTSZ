@@ -12,41 +12,47 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Users collection: users can read their own profile, staff/captain/admin can read profiles
+    // Users collection: allow read and write for accounts synchronization
     match /users/{userId} {
       allow read: if true;
-      allow create: if true;
-      allow update: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.role in ['admin', 'captain', 'staff']);
-      allow delete: if isAuthenticated() && request.auth.token.role == 'admin';
+      allow write: if true;
     }
 
-    // Clearance Requests: residents can read their own; staff/captain/admin can read & update
+    // Profiles collection: full parity for resident personal census & valid ID details
+    match /profiles/{profileId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Multi-factor authentication dispatches and security events
+    match /mfaDispatches/{dispatchId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Clearance Requests: residents, staff, and captain workflows
     match /clearanceRequests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if isAuthenticated() && request.auth.token.role == 'admin';
+      allow read: if true;
+      allow write: if true;
     }
 
-    // Audit Logs: Append-only, strictly immutable (no updates, no deletes)
+    // Audit Logs: Append-only, strictly immutable
     match /auditLogs/{auditId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if true;
       allow update, delete: if false;
     }
 
-    // Notifications: Recipient can read and mark as read
+    // Notifications inbox
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated();
-      allow create: if true;
-      allow update: if isAuthenticated();
-      allow delete: if isAuthenticated();
+      allow read: if true;
+      allow write: if true;
     }
 
-    // System settings
+    // System settings & SMTP configurations
     match /systemSettings/{settingId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.auth.token.role == 'admin';
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

@@ -267,12 +267,14 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
             <p className="text-xs text-slate-600 mt-1 font-medium">
               {user.address} • <strong className="text-slate-900">{user.purok}</strong>
             </p>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-2 font-mono">
-              <span>PhilSys ID: <span className="text-slate-900 font-bold">{profile?.idNumber || 'PHIL-2024-8841'}</span></span>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-2">
+              <span>{profile?.idType || user.idType || 'Official ID'}: <span className="text-slate-900 font-bold font-mono">{profile?.idNumber || user.idNumber || 'VERIFIED-RES'}</span></span>
               <span className="text-slate-300">•</span>
-              <span>Residency: <span className="text-slate-900 font-bold">{profile?.yearsOfResidency || 14} Years</span></span>
+              <span>Civil Status: <span className="text-slate-900 font-bold">{profile?.civilStatus || 'Single'}</span></span>
               <span className="text-slate-300">•</span>
-              <span>Contact: <span className="text-slate-900 font-bold">{user.contactNumber}</span></span>
+              <span>Residency: <span className="text-slate-900 font-bold">{profile?.yearsOfResidency || 5} Years</span></span>
+              <span className="text-slate-300">•</span>
+              <span>Contact: <span className="text-slate-900 font-bold font-mono">{profile?.contactNumber || user.contactNumber}</span></span>
             </div>
           </div>
         </div>

@@ -804,36 +804,41 @@ class ParameterizedDatabase {
 
       this.users.set(fu.id, restoredUser);
 
-      if (restoredUser.role === 'resident' && !this.profiles.has(`prof-${fu.id}`)) {
-        const names = (restoredUser.full_name || '').split(' ');
-        const firstName = names[0] || 'Resident';
-        const lastName = names.slice(1).join(' ') || 'Citizen';
-        this.profiles.set(`prof-${fu.id}`, {
-          id: `prof-${fu.id}`,
-          userId: fu.id,
-          firstName,
-          middleName: '',
-          lastName,
-          suffix: '',
-          birthDate: '1995-06-15',
-          civilStatus: 'Single',
-          gender: 'Not Specified',
-          citizenship: 'Filipino',
-          purokZone: restoredUser.purok,
-          streetAddress: restoredUser.address,
-          yearsOfResidency: 5,
-          contactNumber: restoredUser.contact_number,
-          emergencyContact: '',
-          voterStatus: 'Registered',
-          idType: restoredUser.id_type,
-          idNumber: restoredUser.id_number,
-          idPhotoUrl: restoredUser.id_photo_url,
-          idPhotoName: restoredUser.id_photo_name,
-          verificationStatus: restoredUser.verification_status,
-          verificationRemarks: restoredUser.verification_remarks,
-          createdAt: restoredUser.created_at,
-          updatedAt: new Date().toISOString()
-        });
+      if (restoredUser.role === 'resident') {
+        const existingProf = this.getResidentProfile(fu.id);
+        if (!existingProf) {
+          const names = (restoredUser.full_name || '').split(' ');
+          const firstName = fu.firstName || fu.first_name || names[0] || 'Resident';
+          const lastName = fu.lastName || fu.last_name || names.slice(1).join(' ') || 'Citizen';
+          const newProf: ResidentProfile = {
+            id: `prof-${fu.id}`,
+            userId: fu.id,
+            firstName,
+            middleName: fu.middleName || fu.middle_name || '',
+            lastName,
+            suffix: fu.suffix || '',
+            birthDate: fu.birthDate || fu.birth_date || '1995-06-15',
+            civilStatus: fu.civilStatus || fu.civil_status || 'Single',
+            gender: fu.gender || 'Not Specified',
+            citizenship: 'Filipino',
+            purokZone: restoredUser.purok,
+            streetAddress: restoredUser.address,
+            yearsOfResidency: fu.yearsOfResidency || 5,
+            contactNumber: restoredUser.contact_number,
+            emergencyContact: fu.emergencyContact || '',
+            voterStatus: 'Registered',
+            idType: restoredUser.id_type,
+            idNumber: restoredUser.id_number,
+            idPhotoUrl: restoredUser.id_photo_url,
+            idPhotoName: restoredUser.id_photo_name,
+            verificationStatus: restoredUser.verification_status,
+            verificationRemarks: restoredUser.verification_remarks,
+            createdAt: restoredUser.created_at,
+            updatedAt: new Date().toISOString()
+          };
+          this.profiles.set(fu.id, newProf);
+          this.profiles.set(`prof-${fu.id}`, newProf);
+        }
       }
 
       addedOrUpdated++;
@@ -845,6 +850,69 @@ class ParameterizedDatabase {
     }
 
     return addedOrUpdated;
+  }
+
+  /**
+   * Syncs and restores extended citizen profiles from Cloud Firestore into in-memory store & disk persistence
+   */
+  public syncFromFirestoreProfiles(firestoreProfiles: any[]): number {
+    if (!Array.isArray(firestoreProfiles) || firestoreProfiles.length === 0) return 0;
+    let added = 0;
+    for (const fp of firestoreProfiles) {
+      const userId = fp.userId || (fp.id && fp.id.startsWith('prof-') ? fp.id.replace('prof-', '') : fp.id);
+      if (!userId) continue;
+
+      const profileObj: ResidentProfile = {
+        id: fp.id || `prof-${userId}`,
+        userId,
+        firstName: fp.firstName || fp.full_name?.split(' ')[0] || 'Resident',
+        middleName: fp.middleName || fp.middle_name || '',
+        lastName: fp.lastName || fp.full_name?.split(' ').slice(1).join(' ') || '',
+        suffix: fp.suffix || '',
+        birthDate: fp.birthDate || fp.birth_date || '1995-06-15',
+        civilStatus: fp.civilStatus || fp.civil_status || 'Single',
+        gender: fp.gender || 'Not Specified',
+        citizenship: fp.citizenship || 'Filipino',
+        purokZone: fp.purokZone || fp.purok || 'Purok 1',
+        streetAddress: fp.streetAddress || fp.address || 'Barangay Cabucbucan, Rizal, Nueva Ecija',
+        yearsOfResidency: Number(fp.yearsOfResidency) || 5,
+        contactNumber: fp.contactNumber || fp.contact_number || '0917-555-0199',
+        emergencyContact: fp.emergencyContact || '',
+        voterStatus: fp.voterStatus || 'Registered',
+        idType: fp.idType || fp.id_type || 'Philippine National ID (PhilSys)',
+        idNumber: fp.idNumber || fp.id_number || `PHIL-${userId.substring(Math.max(0, userId.length - 6))}`,
+        idPhotoUrl: fp.idPhotoUrl || fp.id_photo_url || '',
+        idPhotoName: fp.idPhotoName || fp.id_photo_name || 'valid_id.jpg',
+        verificationStatus: fp.verificationStatus || fp.verification_status || 'pending_review',
+        verificationRemarks: fp.verificationRemarks || fp.verification_remarks || 'Restored from Cloud Firestore.',
+        reviewedByStaffName: fp.reviewedByStaffName || fp.reviewed_by,
+        reviewedAt: fp.reviewedAt || fp.reviewed_at,
+        createdAt: fp.createdAt || new Date().toISOString(),
+        updatedAt: fp.updatedAt || new Date().toISOString()
+      };
+
+      this.profiles.set(userId, profileObj);
+      this.profiles.set(profileObj.id, profileObj);
+
+      // Also ensure the corresponding user's contact/purok/verification matches profile
+      const user = this.users.get(userId);
+      if (user) {
+        if (profileObj.contactNumber && !user.contact_number) user.contact_number = profileObj.contactNumber;
+        if (profileObj.purokZone && !user.purok) user.purok = profileObj.purokZone;
+        if (profileObj.streetAddress && !user.address) user.address = `${profileObj.streetAddress}, ${profileObj.purokZone}, Barangay Cabucbucan`;
+        if (profileObj.idPhotoUrl && !user.id_photo_url) user.id_photo_url = profileObj.idPhotoUrl;
+        if (profileObj.idType && !user.id_type) user.id_type = profileObj.idType;
+        if (profileObj.idNumber && !user.id_number) user.id_number = profileObj.idNumber;
+      }
+
+      added++;
+    }
+
+    if (added > 0) {
+      this.persistStore();
+      console.info(`[Database] Restored ${added} resident personal profiles from Cloud Firestore.`);
+    }
+    return added;
   }
 
   // --- Parameterized Query / Safe Data Access Methods ---
@@ -1150,11 +1218,20 @@ class ParameterizedDatabase {
   }
 
   public getResidentProfile(userId: string): ResidentProfile | null {
-    return this.profiles.get(userId) || null;
+    if (!userId) return null;
+    if (this.profiles.has(userId)) return this.profiles.get(userId);
+    if (this.profiles.has(`prof-${userId}`)) return this.profiles.get(`prof-${userId}`);
+    for (const p of this.profiles.values()) {
+      if (p.userId === userId || p.id === userId || p.id === `prof-${userId}`) {
+        return p;
+      }
+    }
+    return null;
   }
 
   public saveResidentProfile(profile: ResidentProfile): ResidentProfile {
-    this.profiles.set(profile.userId, profile);
+    if (profile.userId) this.profiles.set(profile.userId, profile);
+    if (profile.id) this.profiles.set(profile.id, profile);
     this.persistStore();
     return profile;
   }
@@ -1206,20 +1283,25 @@ class ParameterizedDatabase {
     const list: ResidentVerificationRecord[] = [];
     for (const u of this.users.values()) {
       if (u.role === 'resident') {
-        const prof = this.profiles.get(u.id) || {};
+        const prof = this.getResidentProfile(u.id) || ({} as any);
         list.push({
           id: prof.id || `prof-${u.id}`,
           userId: u.id,
           username: u.username,
-          fullName: u.full_name,
+          fullName: u.full_name || `${prof.firstName || u.first_name || ''} ${prof.lastName || u.last_name || ''}`.trim() || u.username,
+          firstName: prof.firstName || u.first_name || '',
+          middleName: prof.middleName || u.middle_name || '',
+          lastName: prof.lastName || u.last_name || '',
+          suffix: prof.suffix || u.suffix || '',
           email: u.email,
-          contactNumber: u.contact_number,
+          contactNumber: u.contact_number || prof.contactNumber || '0917-555-0199',
+          emergencyContact: prof.emergencyContact || '',
           purokZone: u.purok || prof.purokZone || 'Purok 1',
           streetAddress: u.address || prof.streetAddress || '',
-          yearsOfResidency: prof.yearsOfResidency || 5,
-          birthDate: prof.birthDate || '1995-06-15',
-          civilStatus: prof.civilStatus || 'Single',
-          gender: prof.gender || 'Male',
+          yearsOfResidency: prof.yearsOfResidency || u.years_of_residency || 5,
+          birthDate: prof.birthDate || u.birth_date || '1995-06-15',
+          civilStatus: prof.civilStatus || u.civil_status || 'Single',
+          gender: prof.gender || u.gender || 'Not Specified',
           voterStatus: prof.voterStatus || 'Registered',
           idType: prof.idType || u.id_type || 'Philippine National ID (PhilSys)',
           idNumber: prof.idNumber || u.id_number || 'PHIL-2026-0000',
