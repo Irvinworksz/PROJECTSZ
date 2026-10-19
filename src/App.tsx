@@ -13,7 +13,6 @@ import { PublicVerificationModal } from './components/PublicVerificationModal';
 import { AuthModal } from './components/AuthModal';
 import { MfaSettingsModal } from './components/MfaSettingsModal';
 import { InactivityWarningModal } from './components/InactivityWarningModal';
-import { SessionTimerWidget } from './components/SessionTimerWidget';
 import { FirebaseCloudConsoleModal } from './components/FirebaseCloudConsoleModal';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
 import { apiClient } from './lib/api';
@@ -160,7 +159,7 @@ export default function App() {
 
     if (reason === 'inactivity_timeout') {
       setSessionExpiredNotice(
-        'For security compliance (IAS & DILG E-Governance Standards), your session was automatically logged out after 15 minutes of inactivity. Please sign in again to resume.'
+        'For security compliance (IAS & DILG E-Governance Standards), your session was automatically logged out after 3 minutes of inactivity. Please sign in again to resume.'
       );
     } else {
       setSessionExpiredNotice(null);
@@ -182,8 +181,8 @@ export default function App() {
   } = useInactivityTimeout({
     enabled: !!currentUser,
     onTimeout: handleInactivityTimeout,
-    timeoutMs: 15 * 60 * 1000, // 15 minutes of inactivity default
-    warningMs: 60 * 1000 // 60 seconds warning dialog before auto-logout
+    timeoutMs: 3 * 60 * 1000, // 3 minutes of inactivity
+    warningMs: 20 * 1000 // 20 seconds warning dialog before auto-logout
   });
 
   const handleAuthSuccess = (user: User, profile?: ResidentProfile) => {
@@ -253,7 +252,7 @@ export default function App() {
           onSwitchUser={handleSwitchAccount}
           onLogout={handleLogout}
           onOpenMfa={() => setIsMfaOpen(true)}
-          onTestInactivityWarning={() => simulateWarningTest(60)}
+          onTestInactivityWarning={() => simulateWarningTest(20)}
           onResetInactivityTimer={resetTimer}
           sessionRemainingSeconds={sessionRemainingSeconds}
           timeoutMinutes={timeoutMinutes}
@@ -321,7 +320,7 @@ export default function App() {
 
             {activeView === 'playground' && currentUser.role === 'admin' && (
               <IASSecurityPlayground
-                onSimulateInactivityWarning={() => simulateWarningTest(60)}
+                onSimulateInactivityWarning={() => simulateWarningTest(20)}
               />
             )}
 
@@ -406,23 +405,13 @@ export default function App() {
         />
       )}
 
-      {/* Floating Session Auto-Logout Timer Widget (Live Ticking Countdown) */}
-      {currentUser && (
-        <SessionTimerWidget
-          sessionRemainingSeconds={sessionRemainingSeconds}
-          timeoutMinutes={timeoutMinutes}
-          onExtendSession={resetTimer}
-          onSetTimeoutMinutes={setTimeoutMinutes}
-          onTestWarning={() => simulateWarningTest(60)}
-          onLogout={() => handleLogout('user_logout')}
-        />
-      )}
+      {/* Floating Session Auto-Logout Timer Widget: Hidden per user design preference */}
 
-      {/* Global Automatic Inactivity Timeout Warning Modal (Security Compliance) */}
+      {/* Global Automatic Inactivity Timeout Warning Modal (Triggers at 20s remaining) */}
       <InactivityWarningModal
         isOpen={showWarning && !!currentUser}
         remainingSeconds={remainingSeconds}
-        totalWarningSeconds={60}
+        totalWarningSeconds={20}
         timeoutMinutes={timeoutMinutes}
         onStaySignedIn={resetTimer}
         onLogoutNow={() => handleLogout('user_logout')}

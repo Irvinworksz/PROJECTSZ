@@ -184,8 +184,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Action Controls */}
           <div className="flex items-center gap-2">
-            {/* Public Certificate Verification Button */}
-            {onOpenVerify && (
+            {/* Public Certificate Verification Button (Admin Only; removed from resident, staff, captain) */}
+            {onOpenVerify && user.role === 'admin' && (
               <button
                 type="button"
                 onClick={onOpenVerify}
@@ -197,8 +197,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Live Firebase Cloud Database Inspector Button */}
-            {onOpenFirebaseCloud && (
+            {/* Live Firebase Cloud Database Inspector Button (Admin Only; removed from resident, staff, captain) */}
+            {onOpenFirebaseCloud && user.role === 'admin' && (
               <button
                 type="button"
                 onClick={onOpenFirebaseCloud}
@@ -280,169 +280,171 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-            {/* Security Status Indicator */}
-            <div className="relative" ref={securityPopoverRef}>
-              <button
-                id="security-status-indicator"
-                onClick={() => setShowSecurityPopover(!showSecurityPopover)}
-                className="btn-3d-secondary px-2.5 py-1.5 text-emerald-900 text-xs font-semibold rounded-2xl transition-all flex items-center gap-1.5 cursor-pointer bg-emerald-50/70 border-emerald-200/80"
-                title="View Account Security Status, Encryption & MFA Readiness"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="hidden md:inline font-bold text-[11px]">Security:</span>
-                <span className="text-[11px] font-medium text-emerald-800 hidden sm:inline">
-                  {user.mfaEnabled ? 'AES-256 • MFA' : 'AES-256'}
-                </span>
-              </button>
+            {/* Security Status Indicator (Admin Only; removed from resident, staff, captain) */}
+            {user.role === 'admin' && (
+              <div className="relative" ref={securityPopoverRef}>
+                <button
+                  id="security-status-indicator"
+                  onClick={() => setShowSecurityPopover(!showSecurityPopover)}
+                  className="btn-3d-secondary px-2.5 py-1.5 text-emerald-900 text-xs font-semibold rounded-2xl transition-all flex items-center gap-1.5 cursor-pointer bg-emerald-50/70 border-emerald-200/80"
+                  title="View Account Security Status, Encryption & MFA Readiness"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="hidden md:inline font-bold text-[11px]">Security:</span>
+                  <span className="text-[11px] font-medium text-emerald-800 hidden sm:inline">
+                    {user.mfaEnabled ? 'AES-256 • MFA' : 'AES-256'}
+                  </span>
+                </button>
 
-              {/* Detailed Security Status Popover Dropdown */}
-              {showSecurityPopover && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 glass-panel rounded-3xl shadow-2xl border border-white/80 p-4 z-50 space-y-3.5 text-xs animate-in fade-in zoom-in-95 duration-150">
-                  {/* Popover Header */}
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80">
-                    <div className="flex items-center gap-2">
-                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-200/80 shadow-2xs">
-                        <ShieldCheck className="w-4 h-4" />
+                {/* Detailed Security Status Popover Dropdown */}
+                {showSecurityPopover && (
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 glass-panel rounded-3xl shadow-2xl border border-white/80 p-4 z-50 space-y-3.5 text-xs animate-in fade-in zoom-in-95 duration-150">
+                    {/* Popover Header */}
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/80">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-200/80 shadow-2xs">
+                          <ShieldCheck className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">Security & Protection Status</h4>
+                          <p className="text-[10px] text-slate-500">IAS / DILG Standards Compliant</p>
+                        </div>
                       </div>
+                      <button
+                        onClick={() => setShowSecurityPopover(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Account Identity */}
+                    <div className="p-3 bg-slate-50/80 backdrop-blur-xs rounded-2xl border border-slate-200/80 flex items-center justify-between shadow-2xs">
                       <div>
-                        <h4 className="text-xs font-bold text-slate-900">Security & Protection Status</h4>
-                        <p className="text-[10px] text-slate-500">IAS / DILG Standards Compliant</p>
+                        <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Account Owner</div>
+                        <div className="font-bold text-slate-900 text-xs">{user.fullName}</div>
+                        <div className="text-[10px] text-slate-600 font-mono">{user.email}</div>
+                      </div>
+                      <span className="px-2.5 py-0.5 bg-emerald-100/90 text-emerald-900 text-[10px] font-bold rounded-full border border-emerald-300/80 shadow-2xs">
+                        Active
+                      </span>
+                    </div>
+
+                    {/* Security Metrics */}
+                    <div className="space-y-2">
+                      {/* Encryption Status */}
+                      <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <Lock className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Encryption Status</span>
+                          </div>
+                          <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200/80 text-emerald-700 font-bold text-[9px] rounded-md font-mono">
+                            AES-256 GCM
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600 space-y-0.5">
+                          <div className="flex justify-between">
+                            <span>Data at Rest:</span>
+                            <strong className="text-slate-800">Hardware Encrypted</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>In-Transit Transport:</span>
+                            <strong className="text-slate-800">TLS 1.3 / Strict HTTPS</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Password Vault:</span>
+                            <strong className="text-slate-800">BCrypt (Salted $2a$10)</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* MFA Readiness */}
+                      <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <Smartphone className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Two-Factor Authentication (MFA)</span>
+                          </div>
+                          <span className="px-2 py-0.5 bg-blue-50 border border-blue-200/80 text-blue-700 font-bold text-[9px] rounded-md font-mono">
+                            {user.mfaEnabled ? 'Enforced & Ready' : 'Available'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-600 space-y-0.5">
+                          <div className="flex justify-between">
+                            <span>Primary Method:</span>
+                            <strong className="text-slate-800">Gmail 6-digit OTP</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Authenticator TOTP:</span>
+                            <strong className="text-slate-800">RFC 6238 Compliant</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Emergency Recovery:</span>
+                            <strong className="text-emerald-700">8 Offline Backup Codes</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* WebAuthn / Biometrics */}
+                      <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <Fingerprint className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Biometrics & Passkeys</span>
+                          </div>
+                          <span className={`px-2 py-0.5 font-bold text-[9px] rounded-md border font-mono ${
+                            user.webauthnEnabled
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {user.webauthnEnabled ? 'Passkey Registered' : 'FIDO2 Ready'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500">
+                          {user.webauthnEnabled
+                            ? 'W3C WebAuthn Level 2 passkey enrolled for fingerprint / facial hardware authentication.'
+                            : 'Hardware biometric passkeys (Touch ID, Windows Hello, YubiKey) supported.'}
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setShowSecurityPopover(false)}
-                      className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+
+                    {/* Actions */}
+                    <div className="space-y-2 pt-1">
+                      {onOpenMfa && (
+                        <button
+                          onClick={() => {
+                            setShowSecurityPopover(false);
+                            onOpenMfa();
+                          }}
+                          className="btn-3d w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 text-xs"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Manage MFA & Security Credentials</span>
+                        </button>
+                      )}
+
+                      {onTestInactivityWarning && (
+                        <button
+                          onClick={() => {
+                            setShowSecurityPopover(false);
+                            onTestInactivityWarning();
+                          }}
+                          className="btn-3d-secondary w-full py-2 text-slate-800 font-bold rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 text-xs"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Preview Inactivity Warning</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-
-                  {/* Account Identity */}
-                  <div className="p-3 bg-slate-50/80 backdrop-blur-xs rounded-2xl border border-slate-200/80 flex items-center justify-between shadow-2xs">
-                    <div>
-                      <div className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Account Owner</div>
-                      <div className="font-bold text-slate-900 text-xs">{user.fullName}</div>
-                      <div className="text-[10px] text-slate-600 font-mono">{user.email}</div>
-                    </div>
-                    <span className="px-2.5 py-0.5 bg-emerald-100/90 text-emerald-900 text-[10px] font-bold rounded-full border border-emerald-300/80 shadow-2xs">
-                      Active
-                    </span>
-                  </div>
-
-                  {/* Security Metrics */}
-                  <div className="space-y-2">
-                    {/* Encryption Status */}
-                    <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                          <Lock className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Encryption Status</span>
-                        </div>
-                        <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200/80 text-emerald-700 font-bold text-[9px] rounded-md font-mono">
-                          AES-256 GCM
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>Data at Rest:</span>
-                          <strong className="text-slate-800">Hardware Encrypted</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>In-Transit Transport:</span>
-                          <strong className="text-slate-800">TLS 1.3 / Strict HTTPS</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Password Vault:</span>
-                          <strong className="text-slate-800">BCrypt (Salted $2a$10)</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* MFA Readiness */}
-                    <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                          <Smartphone className="w-3.5 h-3.5 text-purple-600" />
-                          <span>Two-Factor Authentication (MFA)</span>
-                        </div>
-                        <span className="px-2 py-0.5 bg-blue-50 border border-blue-200/80 text-blue-700 font-bold text-[9px] rounded-md font-mono">
-                          {user.mfaEnabled ? 'Enforced & Ready' : 'Available'}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-600 space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>Primary Method:</span>
-                          <strong className="text-slate-800">Gmail 6-digit OTP</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Authenticator TOTP:</span>
-                          <strong className="text-slate-800">RFC 6238 Compliant</strong>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Emergency Recovery:</span>
-                          <strong className="text-emerald-700">8 Offline Backup Codes</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* WebAuthn / Biometrics */}
-                    <div className="p-3 bg-white/70 rounded-2xl border border-slate-200/80 shadow-2xs">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                          <Fingerprint className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Biometrics & Passkeys</span>
-                        </div>
-                        <span className={`px-2 py-0.5 font-bold text-[9px] rounded-md border font-mono ${
-                          user.webauthnEnabled
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}>
-                          {user.webauthnEnabled ? 'Passkey Registered' : 'FIDO2 Ready'}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-500">
-                        {user.webauthnEnabled
-                          ? 'W3C WebAuthn Level 2 passkey enrolled for fingerprint / facial hardware authentication.'
-                          : 'Hardware biometric passkeys (Touch ID, Windows Hello, YubiKey) supported.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="space-y-2 pt-1">
-                    {onOpenMfa && (
-                      <button
-                        onClick={() => {
-                          setShowSecurityPopover(false);
-                          onOpenMfa();
-                        }}
-                        className="btn-3d w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 text-xs"
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Manage MFA & Security Credentials</span>
-                      </button>
-                    )}
-
-                    {onTestInactivityWarning && (
-                      <button
-                        onClick={() => {
-                          setShowSecurityPopover(false);
-                          onTestInactivityWarning();
-                        }}
-                        className="btn-3d-secondary w-full py-2 text-slate-800 font-bold rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 text-xs"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Preview Inactivity Warning</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Notification Bell */}
             <div className="relative">
@@ -565,12 +567,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <div className="mt-1.5">{getRoleBadge(user.role)}</div>
                     <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 border border-slate-200/80 rounded-lg text-[10px] text-slate-600 font-medium">
                       <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-                      <span>15m Auto-Logout (IAS Protected)</span>
+                      <span>3m Auto-Logout (IAS Protected)</span>
                     </div>
                   </div>
 
                   <div className="pt-2 border-t border-slate-200/80 space-y-1">
-                    {onOpenMfa && (
+                    {/* MFA Security Settings (Admin Only; removed from resident, staff, captain) */}
+                    {onOpenMfa && user.role === 'admin' && (
                       <button
                         onClick={() => { onOpenMfa(); setShowRoleMenu(false); }}
                         className="w-full px-3 py-2 text-indigo-700 hover:bg-indigo-50/80 rounded-xl text-left font-semibold flex items-center justify-between cursor-pointer transition-colors"

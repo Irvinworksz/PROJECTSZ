@@ -5,6 +5,9 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
   type User as FirebaseUser
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
@@ -40,6 +43,7 @@ googleProvider.setCustomParameters({
 
 /**
  * Sign in using Google Authentication via Firebase Auth SDK
+ * Automatically handles and resolves account-exists-with-different-credential to link registered accounts
  */
 export async function signInWithGoogleFirebase(): Promise<{
   success: boolean;
@@ -48,6 +52,7 @@ export async function signInWithGoogleFirebase(): Promise<{
   token?: string;
   firebaseUser?: FirebaseUser;
   error?: string;
+  isAccountLinked?: boolean;
 }> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
@@ -65,7 +70,8 @@ export async function signInWithGoogleFirebase(): Promise<{
         email: fbUser.email,
         displayName: fbUser.displayName,
         photoURL: fbUser.photoURL,
-        idToken
+        idToken,
+        accountLinked: false
       })
     });
 
@@ -82,7 +88,8 @@ export async function signInWithGoogleFirebase(): Promise<{
       user: data.user,
       profile: data.profile,
       token: data.token,
-      firebaseUser: fbUser
+      firebaseUser: fbUser,
+      isAccountLinked: Boolean(data.accountLinked)
     };
   } catch (error: any) {
     if (error.code === 'auth/popup-closed-by-user') {
@@ -91,6 +98,49 @@ export async function signInWithGoogleFirebase(): Promise<{
     if (error.code === 'auth/cancelled-popup-request') {
       return { success: false, error: 'Another sign-in request is already in progress.' };
     }
+
+    // AUTOMATIC ACCOUNT LINKING: Handle auth/account-exists-with-different-credential
+    // When a resident registered with email/password and now clicks Google Sign-In with that same Gmail
+    if (error.code === 'auth/account-exists-with-different-credential' || error.message?.includes('account-exists-with-different-credential')) {
+      const email = error.customData?.email || (error as any).email;
+      if (email && typeof email === 'string' && email.includes('@')) {
+        console.info(`[Firebase Auth] Resolving credential collision: linking Google account for registered email ${email}`);
+        try {
+          const response = await fetch('/api/auth/firebase-google-login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              uid: (error.customData as any)?.uid || `google-linked-${Date.now().toString(36)}`,
+              email: email.trim().toLowerCase(),
+              displayName: (error.customData as any)?.displayName || (error as any).displayName || email.split('@')[0],
+              photoURL: (error.customData as any)?.photoURL || (error as any).photoURL || '',
+              accountLinked: true
+            })
+          });
+
+          const data = await response.json();
+          if (response.ok && data.success) {
+            return {
+              success: true,
+              user: data.user,
+              profile: data.profile,
+              token: data.token,
+              isAccountLinked: true
+            };
+          } else {
+            return {
+              success: false,
+              error: data.error || 'Could not link Google account to registered profile.'
+            };
+          }
+        } catch (linkErr: any) {
+          console.warn('[Firebase Auth] Auto-link network error:', linkErr);
+        }
+      }
+    }
+
     return {
       success: false,
       error: error.message || 'Firebase Google Sign-In failed.'
@@ -109,3 +159,77 @@ export async function signOutFirebaseUser(): Promise<void> {
     console.warn('[Firebase Auth] Error signing out:', e);
   }
 }
+
+/**
+ * Sends a real official password reset email directly via Google Firebase Auth to user's registered Gmail
+ */
+export async function sendFirebasePasswordReset(email: string): Promise<{
+  success: boolean;
+  error?: string;
+  code?: string;
+}> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    await sendPasswordResetEmail(auth, cleanEmail);
+    console.info(`[Firebase Auth] Real password reset email dispatched via Google servers to ${cleanEmail}`);
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[Firebase Auth] sendPasswordResetEmail notice:', err?.code, err?.message);
+    return {
+      success: false,
+      code: err?.code,
+      error: err?.message || 'Firebase email dispatch error'
+    };
+  }
+}
+
+/**
+ * Registers an account in Firebase Auth so Google Firebase can directly manage and dispatch emails
+ */
+export async function registerUserInFirebaseAuth(email: string, password: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    await createUserWithEmailAndPassword(auth, cleanEmail, password);
+    console.info(`[Firebase Auth] Registered user in Firebase Auth with email: ${cleanEmail}`);
+    return { success: true };
+  } catch (err: any) {
+    // If email is already registered in Firebase or provider requires toggle, log notice without crashing
+    console.warn('[Firebase Auth] Registration notice:', err?.code, err?.message);
+    return { success: false, error: err?.code || err?.message };
+  }
+}
+
+/**
+ * Validates user credentials against Google Firebase Auth.
+ * When a resident resets their password via the official Firebase reset email link,
+ * this function verifies that the newly submitted password is valid in Firebase,
+ * allowing the portal to automatically sync the updated password to their portal account.
+ */
+export async function verifyFirebasePassword(email: string, password: string): Promise<{
+  success: boolean;
+  user?: FirebaseUser;
+  idToken?: string;
+  error?: string;
+}> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const result = await signInWithEmailAndPassword(auth, cleanEmail, password);
+    const idToken = await result.user.getIdToken();
+    console.info(`[Firebase Auth] Successfully verified new Firebase password for: ${cleanEmail}`);
+    return {
+      success: true,
+      user: result.user,
+      idToken
+    };
+  } catch (err: any) {
+    console.warn('[Firebase Auth] verifyFirebasePassword notice:', err?.code, err?.message);
+    return {
+      success: false,
+      error: err?.code || err?.message || 'Firebase authentication failed'
+    };
+  }
+}
+

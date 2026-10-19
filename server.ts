@@ -229,7 +229,9 @@ async function startServer() {
 
         return res.status(401).json({
           success: false,
-          error: 'Invalid username/email or password.'
+          error: 'Invalid username/email or password.',
+          userEmail: user?.email,
+          canCheckFirebaseSync: Boolean(user?.email && user.email.includes('@'))
         });
       }
 
@@ -615,7 +617,7 @@ async function startServer() {
 
       const actionType = isInactivityTimeout ? 'SESSION_AUTO_LOGOUT_INACTIVITY' : 'AUTH_USER_LOGOUT';
       const actionDetails = isInactivityTimeout
-        ? `Session automatically terminated after 15 minutes of inactivity for security compliance (IAS & DILG E-Gov Standards).`
+        ? `Session automatically terminated after 3 minutes of inactivity for security compliance (IAS & DILG E-Gov Standards).`
         : `User manually logged out from the Barangay Portal.`;
 
       db.appendAuditLog({
@@ -633,7 +635,7 @@ async function startServer() {
       return res.json({
         success: true,
         message: isInactivityTimeout 
-          ? 'Session terminated due to 15 minutes of inactivity for security compliance.' 
+          ? 'Session terminated due to 3 minutes of inactivity for security compliance.' 
           : 'Session terminated successfully.'
       });
     } catch (e: any) {
@@ -1931,10 +1933,105 @@ async function startServer() {
     }
   });
 
-  // POST /api/auth/firebase-google-login (Authenticates Firebase Auth Google User & establishes session)
+  // POST /api/auth/sync-firebase-password (Syncs newly reset Firebase Auth password to local portal account)
+  app.post('/api/auth/sync-firebase-password', async (req, res) => {
+    try {
+      const { email, username, newPassword, firebaseUid, idToken } = req.body;
+      const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
+
+      if (!newPassword || newPassword.length < 8) {
+        return res.status(400).json({ success: false, error: 'Password must be at least 8 characters long.' });
+      }
+
+      const identifier = (email || username || '').toString().trim().toLowerCase();
+      if (!identifier) {
+        return res.status(400).json({ success: false, error: 'User email or username is required.' });
+      }
+
+      let user = db.findUserByEmail(identifier) || db.findUserByEmailOrUsername(identifier);
+      if (!user) {
+        try {
+          const cloudUsers = await fetchAllUsersFromFirestore();
+          if (cloudUsers && cloudUsers.length > 0) {
+            db.syncFromFirestoreUsers(cloudUsers);
+            user = db.findUserByEmail(identifier) || db.findUserByEmailOrUsername(identifier);
+          }
+        } catch (e) {
+          console.warn('[Firebase Sync Password] Cloud restore notice:', e);
+        }
+      }
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'Resident account not found in portal database.' });
+      }
+
+      // Hash new password using BCrypt
+      const newHash = await bcrypt.hash(newPassword, 10);
+      user.password_hash = newHash;
+      if (email && typeof email === 'string' && email.includes('@')) {
+        user.email = email.trim().toLowerCase();
+      }
+      user.last_login = new Date().toISOString();
+      db.updateUser(user);
+
+      // Real-time synchronization to Firestore
+      syncUserToFirestore({
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        full_name: user.full_name,
+        role: user.role,
+        status: user.verification_status || 'active',
+        lastLogin: user.last_login,
+        lastIp: clientIp
+      }).catch(console.error);
+
+      // Audit log
+      db.appendAuditLog({
+        userId: user.id,
+        userName: user.full_name,
+        userRole: user.role,
+        ipAddress: clientIp,
+        actionType: 'FIREBASE_PASSWORD_SYNCED',
+        category: 'AUTH',
+        severity: 'INFO',
+        details: `Successfully synchronized new Firebase reset password into local database hash for resident '${user.username}' (${user.email || identifier}).`,
+        resourceType: '/api/auth/sync-firebase-password'
+      });
+
+      // Clear lockout counter
+      RateLimiter.recordSuccessfulAuth(identifier);
+      RateLimiter.recordSuccessfulAuth(user.username);
+      if (user.email) RateLimiter.recordSuccessfulAuth(user.email);
+
+      const authUser = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role as UserRole,
+        fullName: user.full_name
+      };
+
+      const token = signAuthToken(authUser);
+      const profile = user.role === 'resident' ? db.getResidentProfile(user.id) : undefined;
+
+      return res.json({
+        success: true,
+        token,
+        user: formatUserResponse(user, profile),
+        profile,
+        message: 'Password successfully synchronized from Firebase. Welcome back!'
+      });
+    } catch (e: any) {
+      console.error('Sync Firebase password error:', e);
+      return res.status(500).json({ success: false, error: 'Failed to synchronize Firebase password with portal account.' });
+    }
+  });
+
+  // POST /api/auth/firebase-google-login (Authenticates Firebase Auth Google User & automatically links existing accounts)
   app.post('/api/auth/firebase-google-login', async (req, res) => {
     try {
-      const { uid, email, displayName, photoURL } = req.body;
+      const { uid, email, displayName, photoURL, accountLinked } = req.body;
       const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
 
       if (!email || typeof email !== 'string') {
@@ -1942,7 +2039,8 @@ async function startServer() {
       }
 
       const cleanEmail = email.trim().toLowerCase();
-      let user = db.findUserByEmail(cleanEmail);
+      // Look up user by exact registered email, or username matching email prefix
+      let user = db.findUserByEmail(cleanEmail) || db.findUserByEmailOrUsername(cleanEmail);
       let profile: any = null;
 
       if (!user) {
@@ -1950,12 +2048,14 @@ async function startServer() {
           const cloudUsers = await fetchAllUsersFromFirestore();
           if (cloudUsers && cloudUsers.length > 0) {
             db.syncFromFirestoreUsers(cloudUsers);
-            user = db.findUserByEmail(cleanEmail);
+            user = db.findUserByEmail(cleanEmail) || db.findUserByEmailOrUsername(cleanEmail);
           }
         } catch (e) {
           console.warn('[Google Auth] Firestore lookup error:', e);
         }
       }
+
+      let isLinked = false;
 
       if (!user) {
         // Auto-provision resident account for new Google Sign-In user
@@ -1988,7 +2088,8 @@ async function startServer() {
           mfa_secret: null,
           mfa_backup_codes: [],
           created_at: new Date().toISOString(),
-          last_login: new Date().toISOString()
+          last_login: new Date().toISOString(),
+          google_linked: 1
         };
 
         db.createUser(newUser);
@@ -2023,7 +2124,8 @@ async function startServer() {
         db.saveResidentProfile(profile);
         syncProfileToFirestore(profile).catch(console.error);
       } else {
-        // User already exists, fetch profile and update last login
+        // User already exists (e.g. created previously via email/password) -> Seamlessly link Google account!
+        isLinked = true;
         profile = user.role === 'resident' ? db.getResidentProfile(user.id) : undefined;
         if (user.role === 'resident' && !profile) {
           const names = (user.full_name || '').split(' ');
@@ -2058,6 +2160,8 @@ async function startServer() {
         }
         user.last_login = new Date().toISOString();
         if (photoURL && !user.id_photo_url) user.id_photo_url = photoURL;
+        if (!user.email || user.email !== cleanEmail) user.email = cleanEmail;
+        user.google_linked = 1;
         db.updateUser(user);
       }
 
@@ -2072,6 +2176,10 @@ async function startServer() {
         lastLogin: user.last_login,
         lastIp: clientIp
       });
+
+      // Clear any rate limiter flags on successful authentication
+      RateLimiter.recordSuccessfulAuth(cleanEmail);
+      RateLimiter.recordSuccessfulAuth(user.username);
 
       // Sign JWT session token
       const authUser = {
@@ -2088,10 +2196,12 @@ async function startServer() {
         userName: user.full_name,
         userRole: user.role as UserRole,
         ipAddress: clientIp,
-        actionType: 'AUTH_FIREBASE_GOOGLE_LOGIN',
+        actionType: isLinked ? 'AUTH_FIREBASE_GOOGLE_LINKED' : 'AUTH_FIREBASE_GOOGLE_LOGIN',
         category: 'AUTH',
         severity: 'INFO',
-        details: `Resident authenticated via Google Firebase Auth (${cleanEmail})`,
+        details: isLinked
+          ? `Google Authentication (${cleanEmail}) automatically linked to registered account '${user.username}'. Session granted.`
+          : `Resident authenticated via Google Firebase Auth (${cleanEmail})`,
         resourceType: '/api/auth/firebase-google-login'
       });
 
@@ -2099,7 +2209,11 @@ async function startServer() {
         success: true,
         token,
         user: formatUserResponse(user, profile),
-        profile
+        profile,
+        accountLinked: isLinked,
+        message: isLinked
+          ? 'Google account successfully linked to your registered profile.'
+          : 'Signed in successfully via Google.'
       });
     } catch (error: any) {
       console.error('Firebase Google login error:', error);

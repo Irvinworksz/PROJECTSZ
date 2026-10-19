@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for resolving Firebase password reset synchronization and Google Sign-In account linking so users can seamlessly access their account across password resets and Google authentication.",
+  "updatedAt": "2026-10-19T10:44:07.553084699Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

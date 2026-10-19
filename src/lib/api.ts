@@ -106,9 +106,36 @@ export const apiClient = {
       emailError?: string;
       demoOtp?: string;
       message?: string;
+      userEmail?: string;
+      canCheckFirebaseSync?: boolean;
     }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, mfaCode, destinationEmail })
+    });
+
+    if (res.success && res.token && res.user) {
+      this.setToken(res.token);
+      this.setStoredUser(res.user);
+    }
+
+    return res;
+  },
+
+  async syncFirebasePassword(data: {
+    email?: string;
+    username?: string;
+    newPassword: string;
+    firebaseUid?: string;
+    idToken?: string;
+  }) {
+    const res = await makeRequest<{
+      user?: User;
+      token?: string;
+      profile?: ResidentProfile;
+      message?: string;
+    }>('/api/auth/sync-firebase-password', {
+      method: 'POST',
+      body: JSON.stringify(data)
     });
 
     if (res.success && res.token && res.user) {

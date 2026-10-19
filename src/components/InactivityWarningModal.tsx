@@ -13,8 +13,8 @@ interface InactivityWarningModalProps {
 export const InactivityWarningModal: React.FC<InactivityWarningModalProps> = ({
   isOpen,
   remainingSeconds,
-  totalWarningSeconds = 60,
-  timeoutMinutes = 15,
+  totalWarningSeconds = 20,
+  timeoutMinutes = 3,
   onStaySignedIn,
   onLogoutNow
 }) => {
@@ -49,9 +49,9 @@ export const InactivityWarningModal: React.FC<InactivityWarningModalProps> = ({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - percentageRemaining / 100);
 
-  // Urgency thresholds
-  const isCritical = remainingSeconds <= 15;
-  const isUrgent = remainingSeconds > 15 && remainingSeconds <= 30;
+  // Urgency thresholds for 20-second warning popup
+  const isCritical = remainingSeconds <= 5;
+  const isUrgent = remainingSeconds > 5 && remainingSeconds <= 10;
 
   const headerGradient = isCritical
     ? 'from-rose-600 via-rose-700 to-red-800'
@@ -179,10 +179,10 @@ export const InactivityWarningModal: React.FC<InactivityWarningModalProps> = ({
               {/* Milestone Markers */}
               <div className="flex justify-between text-[10px] font-mono text-slate-600 font-semibold px-0.5">
                 <span>0s</span>
+                <span>5s</span>
+                <span>10s</span>
                 <span>15s</span>
-                <span>30s</span>
-                <span>45s</span>
-                <span>60s</span>
+                <span>20s</span>
               </div>
             </div>
           </div>

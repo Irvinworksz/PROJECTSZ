@@ -8,6 +8,7 @@ import { apiClient } from '../lib/api';
 import type { ResidentProfile, User as UserType } from '../types';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { generateSampleIdDataUrl } from '../lib/sampleIds';
+import { verifyFirebasePassword } from '../lib/firebase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -279,9 +280,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setLoading(true);
     const cleanUser = username.trim().toLowerCase();
     const res = await apiClient.login(cleanUser, password);
-    setLoading(false);
 
     if (res.success) {
+      setLoading(false);
       if (res.mfaRequired) {
         setMfaChallengeActive(true);
         setMfaTargetUser({
@@ -305,6 +306,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         onClose();
       }
     } else {
+      // AUTOMATIC FIREBASE PASSWORD SYNC:
+      const targetEmail = res.userEmail || (cleanUser.includes('@') ? cleanUser : null);
+      if (targetEmail && targetEmail.includes('@')) {
+        try {
+          const fbCheck = await verifyFirebasePassword(targetEmail, password);
+          if (fbCheck.success && fbCheck.user) {
+            const syncRes = await apiClient.syncFirebasePassword({
+              email: targetEmail,
+              username: cleanUser,
+              newPassword: password,
+              firebaseUid: fbCheck.user.uid,
+              idToken: fbCheck.idToken
+            });
+            setLoading(false);
+            if (syncRes.success && syncRes.user && syncRes.token) {
+              onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
+              onClose();
+              return;
+            }
+          }
+        } catch (syncErr) {
+          console.warn('[Firebase Auth] Modal auto-sync notice:', syncErr);
+        }
+      }
+
+      setLoading(false);
       setErrorMsg(res.error || 'Invalid username or password. Please verify your credentials.');
     }
   };
@@ -502,21 +529,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                 />
               </div>
 
-              {/* Evaluation Diagnostic Passcode Helper */}
+              {/* Live Email OTP & On-Screen Backup Code Autofill */}
               {mfaTargetUser?.demoOtp && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between text-slate-600">
-                    <span className="flex items-center gap-1.5 text-slate-800 font-bold text-[11px]">
-                      <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
-                      Academic Diagnostic Passcode:
-                    </span>
-                    <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300 text-[11px] select-all">
+                <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex items-center justify-between shadow-xs">
+                  <div>
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Live Email OTP • On-Screen Backup Code</span>
+                    </div>
+                    <div className="text-2xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
                       {mfaTargetUser.demoOtp}
-                    </span>
+                    </div>
+                    <p className="text-[10px] text-emerald-700/90 font-medium">
+                      Dispatched to Gmail. Click to autofill backup code immediately.
+                    </p>
                   </div>
-                  <p className="text-[10px] text-slate-500">
-                    Generated passcode for local testing. Please type this code into the input field above.
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMfaCode(mfaTargetUser.demoOtp || '')}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Autofill Backup Code</span>
+                  </button>
                 </div>
               )}
 

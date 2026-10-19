@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export const DEFAULT_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes standard
-export const WARNING_THRESHOLD_MS = 60 * 1000; // 60 seconds warning
+export const DEFAULT_INACTIVITY_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes standard
+export const WARNING_THRESHOLD_MS = 20 * 1000; // 20 seconds warning popup
 const STORAGE_KEY_EXPIRES_AT = 'barangay_session_expires_at';
 const STORAGE_KEY_LAST_ACTIVITY = 'barangay_last_activity_time';
 
@@ -60,8 +60,8 @@ export function useInactivityTimeout({
     resetTimer(newMs);
   }, [resetTimer]);
 
-  // Fast-forward countdown to test the 60-second warning modal
-  const simulateWarningTest = useCallback((testSeconds: number = 60) => {
+  // Fast-forward countdown to test the 20-second warning modal
+  const simulateWarningTest = useCallback((testSeconds: number = 20) => {
     const now = Date.now();
     const newExpiresAt = now + testSeconds * 1000;
     expiresAtRef.current = newExpiresAt;
@@ -106,7 +106,7 @@ export function useInactivityTimeout({
     // User activity events: Notice we DO NOT include passive 'mousemove' or 'scroll'
     // so the countdown timer visibly ticks down continuously second-by-second!
     // Meaningful user input (like typing or clicking) can extend the session,
-    // but only throttled to at least every 60 seconds of continuous active work.
+    // throttled so active work keeps the session refreshed.
     const activeEventTypes: (keyof WindowEventMap)[] = [
       'keydown',
       'click',
@@ -119,8 +119,8 @@ export function useInactivityTimeout({
 
       const currentTime = Date.now();
       // Throttle automatic activity renewal so the timer is visibly counting down
-      // Only auto-extend if at least 90 seconds have elapsed since last recorded activity
-      if (currentTime - lastThrottleRef.current > 90 * 1000) {
+      // Only auto-extend if at least 30 seconds have elapsed since last recorded activity
+      if (currentTime - lastThrottleRef.current > 30 * 1000) {
         lastThrottleRef.current = currentTime;
         lastActiveTimestampRef.current = currentTime;
         const newExpiresAt = currentTime + currentTimeoutMs;

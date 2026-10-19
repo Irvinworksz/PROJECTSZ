@@ -8,7 +8,7 @@ import {
 import { apiClient } from '../lib/api';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
-import { signInWithGoogleFirebase } from '../lib/firebase';
+import { signInWithGoogleFirebase, registerUserInFirebaseAuth, verifyFirebasePassword } from '../lib/firebase';
 import type { ResidentProfile, User as UserType } from '../types';
 
 interface SignInPageProps {
@@ -164,6 +164,9 @@ export const SignInPage: React.FC<SignInPageProps> = ({
       const res = await signInWithGoogleFirebase();
       if (res.success && res.user && res.token) {
         apiClient.setToken(res.token);
+        if (res.isAccountLinked) {
+          setResetSuccessMsg(`Welcome back! Your Google account (${res.user.email}) has been automatically linked to your registered resident profile.`);
+        }
         onAuthSuccess(res.user, res.profile);
       } else if (res.error) {
         setErrorMsg(res.error);
@@ -334,6 +337,9 @@ export const SignInPage: React.FC<SignInPageProps> = ({
       setLoading(false);
 
       if (res.success && res.user) {
+        if (regEmail && regEmail.includes('@')) {
+          registerUserInFirebaseAuth(regEmail, regPassword).catch(() => {});
+        }
         onAuthSuccess(res.user, res.profile);
       } else {
         setErrorMsg(res.error || 'Registration failed. Please check your details.');
@@ -377,6 +383,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     setLoading(false);
 
     if (res.success) {
+      setLoading(false);
       if (res.mfaRequired && !res.user) {
         setMfaChallengeActive(true);
         setMfaTargetUser({
@@ -401,6 +408,34 @@ export const SignInPage: React.FC<SignInPageProps> = ({
         onAuthSuccess(res.user, res.user.role === 'resident' ? res.profile : undefined);
       }
     } else {
+      // AUTOMATIC FIREBASE PASSWORD SYNC:
+      // If portal login rejects the password, check if the resident reset their password via Google Firebase email link.
+      const targetEmail = res.userEmail || (cleanUser.includes('@') ? cleanUser : null);
+      if (targetEmail && targetEmail.includes('@')) {
+        try {
+          const fbCheck = await verifyFirebasePassword(targetEmail, password);
+          if (fbCheck.success && fbCheck.user) {
+            // Validated against Firebase Auth! Update local portal password hash immediately
+            const syncRes = await apiClient.syncFirebasePassword({
+              email: targetEmail,
+              username: cleanUser,
+              newPassword: password,
+              firebaseUid: fbCheck.user.uid,
+              idToken: fbCheck.idToken
+            });
+            setLoading(false);
+            if (syncRes.success && syncRes.user && syncRes.token) {
+              setResetSuccessMsg('New Firebase reset password verified! Your portal account has been synchronized successfully.');
+              onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
+              return;
+            }
+          }
+        } catch (syncErr) {
+          console.warn('[Firebase Auth] Auto-sync attempt error:', syncErr);
+        }
+      }
+
+      setLoading(false);
       setErrorMsg(res.error || 'Invalid credentials. Please verify your username and password.');
     }
   };
@@ -588,24 +623,28 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                   </p>
                 </div>
 
-                {/* Live Passcode Display & 1-Click Auto-fill */}
+                {/* Live Email OTP & On-Screen Backup Code Autofill */}
                 {mfaTargetUser?.demoOtp && (
-                  <div className="p-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex items-center justify-between shadow-xs">
+                  <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex items-center justify-between shadow-xs">
                     <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
-                        Active 2FA Security Passcode
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Live Email OTP • On-Screen Backup Code</span>
                       </div>
-                      <div className="text-xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
+                      <div className="text-2xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
                         {mfaTargetUser.demoOtp}
                       </div>
+                      <p className="text-[10px] text-emerald-700/90 font-medium">
+                        Dispatched to Gmail. Click to autofill backup code immediately without switching tabs.
+                      </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setMfaCode(mfaTargetUser.demoOtp || '')}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
                     >
                       <Check className="w-3.5 h-3.5" />
-                      <span>Auto-fill Code</span>
+                      <span>Autofill Backup Code</span>
                     </button>
                   </div>
                 )}

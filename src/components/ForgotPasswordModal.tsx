@@ -4,6 +4,7 @@ import {
   X, Eye, EyeOff, ArrowRight, RefreshCw
 } from 'lucide-react';
 import { apiClient } from '../lib/api';
+import { sendFirebasePasswordReset } from '../lib/firebase';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [recipientEmail, setRecipientEmail] = useState<string>('');
   const [maskedEmail, setMaskedEmail] = useState<string>('');
   const [emailDelivered, setEmailDelivered] = useState<boolean>(false);
+  const [firebaseDispatched, setFirebaseDispatched] = useState<boolean>(false);
+  const [firebaseError, setFirebaseError] = useState<string | undefined>();
   const [emailError, setEmailError] = useState<string | undefined>();
   const [otpCode, setOtpCode] = useState<string>('');
   const [demoOtp, setDemoOtp] = useState<string>('');
@@ -58,6 +61,8 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setRecipientEmail('');
     setMaskedEmail('');
     setEmailDelivered(false);
+    setFirebaseDispatched(false);
+    setFirebaseError(undefined);
     setEmailError(undefined);
     setOtpCode('');
     setDemoOtp('');
@@ -84,13 +89,30 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
     setLoading(true);
     const res = await apiClient.forgotPassword(cleanIdentifier);
+
+    // Call Firebase Auth SDK directly in the browser to send an official password reset email to user's registered Gmail
+    const targetEmail = res.email || (cleanIdentifier.includes('@') ? cleanIdentifier.toLowerCase() : '');
+    let fbSent = false;
+    let fbErr: string | undefined = undefined;
+
+    if (targetEmail && targetEmail.includes('@')) {
+      const fbResult = await sendFirebasePasswordReset(targetEmail);
+      if (fbResult.success) {
+        fbSent = true;
+      } else {
+        fbErr = fbResult.error;
+      }
+    }
+
     setLoading(false);
 
     if (res.success && res.userFound && res.userId) {
       setUserId(res.userId);
-      setRecipientEmail(res.email || res.maskedEmail || '');
-      setMaskedEmail(res.maskedEmail || 'your registered Gmail');
+      setRecipientEmail(res.email || res.maskedEmail || targetEmail || '');
+      setMaskedEmail(res.maskedEmail || targetEmail || 'your registered Gmail');
       setEmailDelivered(Boolean(res.emailDelivered));
+      setFirebaseDispatched(fbSent);
+      setFirebaseError(fbErr);
       setEmailError(res.emailError);
       if (res.demoOtp) {
         setDemoOtp(res.demoOtp);
@@ -98,11 +120,14 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       setOtpCode('');
       setStep('verify');
       setResendCooldown(30);
-      setInfoMsg(
-        res.emailDelivered
-          ? `A 6-digit security reset code has been sent directly to your Gmail inbox (${res.email || res.maskedEmail}). Please check your inbox or spam folder.`
-          : `A 6-digit security reset code has been generated for ${res.email || res.maskedEmail}.`
-      );
+
+      const successNotice = fbSent
+        ? `Official Google Firebase reset email sent to ${targetEmail}! Click the link in your Gmail to set your new password—the portal will automatically sync it when you sign in.`
+        : res.emailDelivered
+        ? `A 6-digit security reset code has been sent directly to your Gmail inbox (${res.email || res.maskedEmail}).`
+        : `A 6-digit security reset code has been generated for ${res.email || res.maskedEmail || targetEmail}.`;
+
+      setInfoMsg(successNotice);
     } else {
       setErrorMsg(
         res.error || res.message || `No registered account found matching "${cleanIdentifier}". Please verify your username or registered Gmail.`
@@ -306,23 +331,69 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <form onSubmit={handleVerifyAndReset} className="space-y-4">
               
               {/* Delivery Target Banner */}
-              <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-1">
+              <div className={`p-3.5 rounded-2xl text-xs space-y-1 border ${
+                firebaseDispatched || emailDelivered
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                  : 'bg-blue-50 border-blue-200 text-blue-950'
+              }`}>
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-blue-900 flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Dispatched To:</span>
+                  <span className="font-bold flex items-center gap-1.5">
+                    <Mail className={`w-3.5 h-3.5 ${firebaseDispatched || emailDelivered ? 'text-emerald-600' : 'text-blue-600'}`} />
+                    <span>Dispatched To Registered Gmail:</span>
                   </span>
-                  <span className="text-[10px] font-extrabold uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                    {emailDelivered ? 'Gmail Delivered' : 'Security Code Sent'}
+                  <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full ${
+                    firebaseDispatched
+                      ? 'bg-emerald-200 text-emerald-900'
+                      : emailDelivered
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {firebaseDispatched
+                      ? '✓ Firebase Sent'
+                      : emailDelivered
+                      ? '✓ Gmail Delivered'
+                      : 'Security Code Active'}
                   </span>
                 </div>
                 <div className="font-mono font-bold text-slate-900 text-xs">
                   {recipientEmail || maskedEmail}
                 </div>
                 <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Please check your Gmail inbox and spam/junk folder for your official 6-digit verification code.
+                  {firebaseDispatched
+                    ? 'An official Google Firebase password reset link has been dispatched directly to your Gmail inbox! Please check your inbox or spam folder.'
+                    : 'A verification security code has been generated for your registered Gmail. You can check your inbox or use the instant on-screen backup code below.'}
                 </p>
               </div>
+
+              {/* Live Email OTP with On-Screen Autofill Backup Code */}
+              {demoOtp && (
+                <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex items-center justify-between shadow-xs">
+                  <div>
+                    <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Live Email OTP • On-Screen Backup Code</span>
+                    </div>
+                    <div className="text-2xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
+                      {demoOtp}
+                    </div>
+                    <p className="text-[10px] text-emerald-700/90 font-medium">
+                      Dispatched to Gmail. Click below to autofill instantly without leaving this tab.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOtpCode(demoOtp);
+                      setCopiedCode(true);
+                      setTimeout(() => setCopiedCode(false), 2000);
+                    }}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{copiedCode ? 'Autofilled!' : 'Autofill Code'}</span>
+                  </button>
+                </div>
+              )}
 
               {/* 6-Digit Passcode Input Field */}
               <div>
