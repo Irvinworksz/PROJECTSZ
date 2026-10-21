@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for resolving Firebase password reset synchronization and Google Sign-In account linking so users can seamlessly access their account across password resets and Google authentication.",
-  "updatedAt": "2026-10-19T10:44:07.553084699Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Comprehensive implementation plan for refining the Resident Portal experience:\n1. Streamline Resident Dashboard by removing the Secure Document Vault tab, IAS Security & MFA Settings tab, and header MFA toggle.\n2. Enhance Edit Contact Info modal with Civil Status selection restricted strictly to 'Single', 'Married', and 'Widowed'.\n3. Automate Government ID on File during Clearance Applications, removing manual re-upload and displaying the resident's registered ID picture.\n4. Unify Resident Picture & ID across Registration, Staff Verification Queue, and Punong Barangay Executive Signing Portal with high-resolution inspection.",
+  "updatedAt":  "2026-10-21T03:28:51.903145390Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

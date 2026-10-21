@@ -320,10 +320,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               idToken: fbCheck.idToken
             });
             setLoading(false);
-            if (syncRes.success && syncRes.user && syncRes.token) {
-              onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
-              onClose();
-              return;
+            if (syncRes.success) {
+              if (syncRes.mfaRequired) {
+                setMfaChallengeActive(true);
+                setMfaTargetUser({
+                  id: syncRes.userId || '',
+                  username: syncRes.username || username,
+                  role: syncRes.role || 'resident',
+                  fullName: syncRes.fullName || username,
+                  email: syncRes.email,
+                  maskedEmail: syncRes.maskedEmail || `${username}@gmail.com`,
+                  emailDelivered: syncRes.emailDelivered,
+                  emailError: syncRes.emailError,
+                  demoOtp: syncRes.demoOtp
+                });
+                setMfaCode('');
+                setCustomDestinationEmail(syncRes.email || '');
+                if (syncRes.emailDelivered) {
+                  setResendStatusMsg(`Password verified! 6-digit code delivered to ${syncRes.email || syncRes.maskedEmail}.`);
+                }
+                return;
+              } else if (syncRes.user && syncRes.token) {
+                onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
+                onClose();
+                return;
+              }
             }
           }
         } catch (syncErr) {
@@ -332,7 +353,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       }
 
       setLoading(false);
-      setErrorMsg(res.error || 'Invalid username or password. Please verify your credentials.');
+      if (res.passwordResetPending) {
+        setErrorMsg('A password reset was requested for this account and your previous password was invalidated. Please enter the new password you created via your Gmail reset link.');
+      } else {
+        setErrorMsg(res.error || 'Invalid username or password. Please verify your credentials.');
+      }
     }
   };
 

@@ -108,6 +108,7 @@ export const apiClient = {
       message?: string;
       userEmail?: string;
       canCheckFirebaseSync?: boolean;
+      passwordResetPending?: boolean;
     }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, mfaCode, destinationEmail })
@@ -119,6 +120,13 @@ export const apiClient = {
     }
 
     return res;
+  },
+
+  async invalidateOldPassword(identifier: string) {
+    return makeRequest<{ success: boolean; message?: string }>('/api/auth/invalidate-reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ userId: identifier, email: identifier, username: identifier })
+    });
   },
 
   async syncFirebasePassword(data: {
@@ -133,6 +141,16 @@ export const apiClient = {
       token?: string;
       profile?: ResidentProfile;
       message?: string;
+      mfaRequired?: boolean;
+      userId?: string;
+      username?: string;
+      role?: string;
+      fullName?: string;
+      email?: string;
+      maskedEmail?: string;
+      emailDelivered?: boolean;
+      emailError?: string;
+      demoOtp?: string;
     }>('/api/auth/sync-firebase-password', {
       method: 'POST',
       body: JSON.stringify(data)
@@ -398,6 +416,7 @@ export const apiClient = {
     purok?: string;
     emergencyContact?: string;
     yearsOfResidency?: number;
+    civilStatus?: string;
   }) {
     const res = await makeRequest<{ user: User; profile?: ResidentProfile; message: string }>('/api/auth/profile', {
       method: 'PUT',

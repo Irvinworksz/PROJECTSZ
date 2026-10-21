@@ -96,7 +96,7 @@ export interface ResidentProfile {
   lastName: string;
   suffix?: string;
   birthDate: string;
-  civilStatus: 'Single' | 'Married' | 'Widowed' | 'Separated';
+  civilStatus: 'Single' | 'Married' | 'Widowed';
   gender: 'Male' | 'Female' | 'Other';
   citizenship: string;
   purokZone: string;

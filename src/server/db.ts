@@ -1007,10 +1007,23 @@ class ParameterizedDatabase {
 
     // Update password
     user.password_hash = newPasswordHash;
+    user.password_reset_pending = 0;
     user.reset_otp = null;
     user.reset_otp_expires = null;
     this.persistStore();
     return { success: true };
+  }
+
+  public invalidateUserPasswordForReset(userIdOrIdentifier: string): any | null {
+    let user = this.users.get(userIdOrIdentifier);
+    if (!user) {
+      user = this.findUserByEmailOrUsername(userIdOrIdentifier);
+    }
+    if (!user) return null;
+    user.password_hash = null;
+    user.password_reset_pending = 1;
+    this.persistStore();
+    return user;
   }
 
   public findUserById(id: string): any | null {
@@ -1242,6 +1255,7 @@ class ParameterizedDatabase {
     purok?: string;
     emergencyContact?: string;
     yearsOfResidency?: number;
+    civilStatus?: string;
   }): { user: any; profile: ResidentProfile | null } | null {
     const user = this.users.get(userId);
     if (!user) return null;
@@ -1249,6 +1263,7 @@ class ParameterizedDatabase {
     if (data.contactNumber !== undefined) user.contact_number = data.contactNumber;
     if (data.address !== undefined) user.address = data.address;
     if (data.purok !== undefined) user.purok = data.purok;
+    if (data.civilStatus !== undefined) user.civil_status = data.civilStatus;
 
     let profile = this.profiles.get(userId) || null;
     if (profile) {
@@ -1257,6 +1272,7 @@ class ParameterizedDatabase {
       if (data.purok !== undefined) profile.purokZone = data.purok;
       if (data.emergencyContact !== undefined) profile.emergencyContact = data.emergencyContact;
       if (data.yearsOfResidency !== undefined) profile.yearsOfResidency = data.yearsOfResidency;
+      if (data.civilStatus !== undefined) profile.civilStatus = data.civilStatus as any;
       profile.updatedAt = new Date().toISOString();
       this.profiles.set(userId, profile);
     }
@@ -1305,7 +1321,7 @@ class ParameterizedDatabase {
           voterStatus: prof.voterStatus || 'Registered',
           idType: prof.idType || u.id_type || 'Philippine National ID (PhilSys)',
           idNumber: prof.idNumber || u.id_number || 'PHIL-2026-0000',
-          idPhotoUrl: prof.idPhotoUrl || u.id_photo_url,
+          idPhotoUrl: prof.idPhotoUrl || u.id_photo_url || u.avatar_url,
           idPhotoName: prof.idPhotoName || u.id_photo_name || 'valid_id.jpg',
           isVerifiedResident: Boolean(u.is_verified_resident),
           verificationStatus: u.verification_status || (u.is_verified_resident ? 'verified' : 'pending_review'),
@@ -1489,8 +1505,13 @@ class ParameterizedDatabase {
     const all = Array.from(this.requests.values()).map(r => {
       // Ensure attachments are attached
       const appDocs = this.getUploadedDocumentsByApplication(r.id);
+      const residentUser = this.users.get(r.residentId);
+      const effectiveIdUrl = r.idAttachmentUrl || residentUser?.id_photo_url || residentUser?.avatar_url;
+      const effectiveIdName = r.idAttachmentName || residentUser?.id_photo_name || 'registered_resident_id.jpg';
       return {
         ...r,
+        idAttachmentUrl: effectiveIdUrl,
+        idAttachmentName: effectiveIdName,
         attachments: appDocs.length > 0 ? appDocs : (r.attachments || []),
         notificationsSent: this.sanitizeNotificationsForUser(r.notificationsSent, requestingUser)
       };

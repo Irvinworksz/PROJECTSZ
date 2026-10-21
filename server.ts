@@ -199,13 +199,14 @@ async function startServer() {
 
       // Verify password via BCrypt
       let isMatch = false;
-      if (user.password_hash) {
+      // If a password reset is pending, the previous password is strictly invalidated
+      if (user.password_hash && !user.password_reset_pending) {
         isMatch = await bcrypt.compare(password, user.password_hash);
       }
 
       // Resilience: If account was restored from Cloud Firestore without a password hash or with fallback hash,
-      // securely adopt the user's entered password, hash it with BCrypt, update Firestore, and permit login.
-      if (!isMatch && (!user.password_hash || user.password_hash === '$2b$10$eQVArZbiYqhYHCUxLeiaa.cTiFs4z8oCymdzGX0zhqQ0jX9wbZFva')) {
+      // securely adopt the user's entered password, hash it with BCrypt, update Firestore, and permit login ONLY IF not reset-pending.
+      if (!isMatch && !user.password_reset_pending && (!user.password_hash || user.password_hash === '$2b$10$eQVArZbiYqhYHCUxLeiaa.cTiFs4z8oCymdzGX0zhqQ0jX9wbZFva')) {
         user.password_hash = await bcrypt.hash(password, 10);
         db.updateUser(user);
         syncUserToFirestore(user).catch(console.error);
@@ -215,6 +216,7 @@ async function startServer() {
 
       if (!isMatch) {
         RateLimiter.recordFailedAuth(cleanIdentifier);
+        const isResetPending = Boolean(user.password_reset_pending || !user.password_hash);
         db.appendAuditLog({
           userId: user.id,
           userName: user.full_name,
@@ -223,22 +225,27 @@ async function startServer() {
           actionType: 'AUTH_LOGIN_FAILED',
           category: 'AUTH',
           severity: 'WARN',
-          details: `Incorrect password entered for account '${user.username}'`,
+          details: isResetPending
+            ? `Login rejected for '${user.username}': password reset pending (old password invalidated).`
+            : `Incorrect password entered for account '${user.username}'`,
           resourceType: '/api/auth/login'
         });
 
         return res.status(401).json({
           success: false,
-          error: 'Invalid username/email or password.',
+          error: isResetPending
+            ? 'A password reset was requested for this account. Your previous password has been invalidated. Please sign in with the new password you set via your Gmail link.'
+            : 'Invalid username/email or password.',
           userEmail: user?.email,
-          canCheckFirebaseSync: Boolean(user?.email && user.email.includes('@'))
+          canCheckFirebaseSync: Boolean(user?.email && user.email.includes('@')),
+          passwordResetPending: isResetPending
         });
       }
 
-      // Two-Factor Authentication (MFA / 2FA): Mandatory for administrative personnel (Staff, Official, Admin),
-      // and only active for residents if they have explicitly enabled and required 2FA in security settings.
-      const isMfaEnabled = (user.role === 'staff' || user.role === 'official' || user.role === 'admin') ||
-        (user.role === 'resident' && Boolean(user.mfa_enabled) && Boolean(user.mfa_required));
+      // Two-Factor Authentication (MFA / 2FA):
+      // Mandatory strictly for Resident accounts: Every resident login sends a 6-digit verification code to their registered Gmail.
+      // Exempt for Staff and Barangay Captain (Officials/Admins) so they log in directly without 2FA interruption.
+      const isMfaEnabled = user.role === 'resident';
       const { mfaCode, destinationEmail } = req.body;
 
       // Determine recipient email: user's registered email or optional testing destination email
@@ -894,6 +901,7 @@ async function startServer() {
         id_number: cleanIdNumber,
         id_photo_url: cleanIdPhotoUrl,
         id_photo_name: cleanIdPhotoName,
+        avatar_url: cleanIdPhotoUrl,
         mfa_enabled: 0,
         mfa_required: 0,
         mfa_type: 'gmail',
@@ -1332,7 +1340,7 @@ async function startServer() {
   app.put('/api/auth/profile', authenticateToken, (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ success: false, error: 'Unauthorized' });
-      const { contactNumber, address, purok, emergencyContact, yearsOfResidency } = req.body;
+      const { contactNumber, address, purok, emergencyContact, yearsOfResidency, civilStatus } = req.body;
       const clientIp = req.ip || req.socket.remoteAddress || '127.0.0.1';
 
       const updateData: any = {};
@@ -1341,6 +1349,7 @@ async function startServer() {
       if (purok !== undefined) updateData.purok = sanitizeInput(purok);
       if (emergencyContact !== undefined) updateData.emergencyContact = sanitizeInput(emergencyContact);
       if (yearsOfResidency !== undefined) updateData.yearsOfResidency = Number(yearsOfResidency);
+      if (civilStatus !== undefined) updateData.civilStatus = sanitizeInput(civilStatus);
 
       const result = db.updateUserProfile(req.user.id, updateData);
       if (!result) return res.status(404).json({ success: false, error: 'User not found.' });
@@ -1370,6 +1379,9 @@ async function startServer() {
           contactNumber: result.user.contact_number,
           address: result.user.address,
           purok: result.user.purok,
+          civilStatus: result.user.civil_status || result.profile?.civilStatus || 'Single',
+          idPhotoUrl: result.user.id_photo_url,
+          avatarUrl: result.user.avatar_url || result.user.id_photo_url,
           isVerifiedResident: Boolean(result.user.is_verified_resident),
           mfaEnabled: Boolean(result.user.mfa_enabled),
           mfaRequired: Boolean(result.user.mfa_required),
@@ -1933,6 +1945,41 @@ async function startServer() {
     }
   });
 
+  // POST /api/auth/invalidate-reset-password (Immediately invalidates old password when Firebase reset link is dispatched)
+  app.post('/api/auth/invalidate-reset-password', async (req, res) => {
+    try {
+      const { userId, email, username } = req.body;
+      const target = (userId || email || username || '').toString().trim();
+      if (!target) {
+        return res.status(400).json({ success: false, error: 'Target user identifier required.' });
+      }
+
+      const updatedUser = db.invalidateUserPasswordForReset(target);
+      if (updatedUser) {
+        syncUserToFirestore(updatedUser).catch(console.error);
+        db.appendAuditLog({
+          userId: updatedUser.id,
+          userName: updatedUser.full_name,
+          userRole: updatedUser.role,
+          ipAddress: req.ip || '127.0.0.1',
+          actionType: 'AUTH_PASSWORD_RESET_DISPATCHED',
+          category: 'AUTH',
+          severity: 'INFO',
+          details: `Old password invalidated and marked reset-pending for account '${updatedUser.username}'. Only newly chosen Firebase password will be accepted.`,
+          resourceType: '/api/auth/invalidate-reset-password'
+        });
+        return res.json({
+          success: true,
+          message: 'Previous password invalidated. Only new password will be accepted.'
+        });
+      }
+
+      return res.json({ success: false, error: 'User not found.' });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e.message || 'Server error' });
+    }
+  });
+
   // POST /api/auth/sync-firebase-password (Syncs newly reset Firebase Auth password to local portal account)
   app.post('/api/auth/sync-firebase-password', async (req, res) => {
     try {
@@ -1965,9 +2012,10 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Resident account not found in portal database.' });
       }
 
-      // Hash new password using BCrypt
+      // Hash new password using BCrypt and clear reset pending status
       const newHash = await bcrypt.hash(newPassword, 10);
       user.password_hash = newHash;
+      user.password_reset_pending = 0;
       if (email && typeof email === 'string' && email.includes('@')) {
         user.email = email.trim().toLowerCase();
       }
@@ -2003,6 +2051,49 @@ async function startServer() {
       RateLimiter.recordSuccessfulAuth(identifier);
       RateLimiter.recordSuccessfulAuth(user.username);
       if (user.email) RateLimiter.recordSuccessfulAuth(user.email);
+
+      // Two-Factor Authentication for Resident: Send 6-digit OTP to registered Gmail
+      if (user.role === 'resident') {
+        const emailOtp = generateEmailOtp();
+        const expiresAt = Date.now() + (10 * 60 * 1000); // 10 mins
+        db.setUserEmailMfaOtp(user.id, emailOtp, expiresAt);
+        const recipientEmail = user.email || identifier;
+        const maskedEmail = maskEmailAddress(recipientEmail);
+
+        const mailResult = await sendMfaOtpEmail({
+          to: recipientEmail,
+          recipientName: user.full_name,
+          otpCode: emailOtp,
+          purpose: 'Official Account Sign-In',
+          expiresInMinutes: 10
+        });
+
+        syncMfaDispatchToFirestore({
+          userId: user.id,
+          username: user.username,
+          email: recipientEmail,
+          maskedEmail,
+          otpCode: emailOtp,
+          purpose: 'Official Account Sign-In',
+          delivered: mailResult.delivered,
+          expiresInMinutes: 10
+        }).catch(console.error);
+
+        return res.json({
+          success: true,
+          mfaRequired: true,
+          userId: user.id,
+          username: user.username,
+          role: user.role,
+          fullName: user.full_name,
+          email: recipientEmail,
+          maskedEmail,
+          emailDelivered: mailResult.delivered,
+          emailError: mailResult.error,
+          demoOtp: emailOtp,
+          message: 'Password successfully updated! A 6-digit verification code has been dispatched to your registered Gmail.'
+        });
+      }
 
       const authUser = {
         id: user.id,
@@ -2666,8 +2757,8 @@ async function startServer() {
       businessAddress: businessAddress ? sanitizeInput(businessAddress) : undefined,
       monthlyIncome: monthlyIncome ? Number(monthlyIncome) : undefined,
       assistanceType: assistanceType ? sanitizeInput(assistanceType) : undefined,
-      idAttachmentName: idAttachmentName ? sanitizeInput(idAttachmentName) : 'valid_id_attached.jpg',
-      idAttachmentUrl: idAttachmentUrl ? idAttachmentUrl : undefined,
+      idAttachmentName: idAttachmentName ? sanitizeInput(idAttachmentName) : (residentUser.id_photo_name || 'registered_resident_id.jpg'),
+      idAttachmentUrl: idAttachmentUrl || residentUser.id_photo_url || residentUser.avatar_url || undefined,
       feeAmount: fee,
       submittedAt: new Date().toISOString(),
       notificationsSent: [

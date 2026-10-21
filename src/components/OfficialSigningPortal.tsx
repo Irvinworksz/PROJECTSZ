@@ -101,12 +101,26 @@ export const OfficialSigningPortal: React.FC<OfficialSigningPortalProps> = ({
                 className="glass-card p-6 rounded-3xl border border-white/80 shadow-md hover:shadow-xl transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-6"
               >
                 <div className="space-y-2 flex-1">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono font-bold text-sm text-purple-800 bg-purple-50/90 px-3 py-1 rounded-xl border border-purple-200/80 shadow-2xs">
-                      {req.referenceNumber}
-                    </span>
-                    <h4 className="font-bold text-slate-900 text-base">{req.residentName}</h4>
-                    <span className="text-xs text-slate-500 font-medium">({req.purok})</span>
+                  <div className="flex items-center gap-3">
+                    {req.idAttachmentUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setInspectingReq(req)}
+                        className="w-11 h-11 rounded-xl overflow-hidden border border-purple-200 bg-slate-100 shrink-0 cursor-pointer shadow-xs hover:ring-2 hover:ring-blue-500 transition-all"
+                        title="Click to inspect resident photo"
+                      >
+                        <img src={req.idAttachmentUrl} alt={req.residentName} className="w-full h-full object-cover" />
+                      </button>
+                    ) : null}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-sm text-purple-800 bg-purple-50/90 px-3 py-1 rounded-xl border border-purple-200/80 shadow-2xs">
+                          {req.referenceNumber}
+                        </span>
+                        <h4 className="font-bold text-slate-900 text-base">{req.residentName}</h4>
+                      </div>
+                      <span className="text-xs text-slate-500 font-medium">{req.residentAddress} ({req.purok})</span>
+                    </div>
                   </div>
 
                   <div className="text-xs text-slate-600 space-y-1 font-medium">

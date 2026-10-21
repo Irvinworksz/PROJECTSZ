@@ -3,7 +3,7 @@ import {
   AlertCircle, CheckCircle2, Eye, EyeOff, Lock, User, 
   HelpCircle, UploadCloud, X, Check, Mail, Phone,
   MapPin, Shield, ArrowRight, RefreshCw, KeyRound, UserPlus,
-  LogIn, FileText
+  LogIn, FileText, Clipboard
 } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
@@ -424,10 +424,33 @@ export const SignInPage: React.FC<SignInPageProps> = ({
               idToken: fbCheck.idToken
             });
             setLoading(false);
-            if (syncRes.success && syncRes.user && syncRes.token) {
-              setResetSuccessMsg('New Firebase reset password verified! Your portal account has been synchronized successfully.');
-              onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
-              return;
+            if (syncRes.success) {
+              if (syncRes.mfaRequired && !syncRes.user) {
+                setMfaChallengeActive(true);
+                setMfaTargetUser({
+                  id: syncRes.userId || '',
+                  username: syncRes.username || username,
+                  role: syncRes.role || 'resident',
+                  fullName: syncRes.fullName || username,
+                  email: syncRes.email,
+                  maskedEmail: syncRes.maskedEmail || `${username}@gmail.com`,
+                  mfaType: 'gmail',
+                  demoOtp: syncRes.demoOtp,
+                  emailDelivered: syncRes.emailDelivered,
+                  emailError: syncRes.emailError
+                });
+                setMfaCode('');
+                setResetSuccessMsg(
+                  syncRes.emailDelivered
+                    ? `New password verified! 6-digit verification code dispatched to your Gmail (${syncRes.email || syncRes.maskedEmail}).`
+                    : `New password verified! 6-digit verification code generated for ${syncRes.email || syncRes.maskedEmail}.`
+                );
+                return;
+              } else if (syncRes.user && syncRes.token) {
+                setResetSuccessMsg('New Firebase reset password verified! Your portal account has been synchronized successfully.');
+                onAuthSuccess(syncRes.user, syncRes.user.role === 'resident' ? syncRes.profile : undefined);
+                return;
+              }
             }
           }
         } catch (syncErr) {
@@ -436,7 +459,11 @@ export const SignInPage: React.FC<SignInPageProps> = ({
       }
 
       setLoading(false);
-      setErrorMsg(res.error || 'Invalid credentials. Please verify your username and password.');
+      if (res.passwordResetPending) {
+        setErrorMsg('A password reset was requested for this account and your previous password has been invalidated. Please sign in with the new password you set via your Gmail link.');
+      } else {
+        setErrorMsg(res.error || 'Invalid credentials. Please verify your username and password.');
+      }
     }
   };
 
@@ -606,63 +633,86 @@ export const SignInPage: React.FC<SignInPageProps> = ({
               </div>
             )}
 
-            {/* CASE 1: MFA VERIFICATION STEP */}
+            {/* CASE 1: RESIDENT GMAIL 2FA VERIFICATION STEP */}
             {mfaChallengeActive ? (
               <div className="space-y-4">
-                <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl text-xs space-y-1.5 text-slate-700">
+                <div className="p-3.5 bg-blue-50/90 border border-blue-200 rounded-2xl text-xs space-y-2 text-slate-700">
                   <div className="font-bold text-slate-900 flex items-center justify-between">
-                    <span>Two-Factor Authentication</span>
-                    <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                    <span className="flex items-center gap-1.5 font-extrabold text-blue-950">
+                      <Mail className="w-4 h-4 text-blue-600" />
+                      <span>Resident Security Verification</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-100/90 px-2 py-0.5 rounded-full">
                       {mfaTargetUser?.emailDelivered ? 'Gmail Delivered' : 'Code Active'}
                     </span>
                   </div>
                   <p className="text-[11px] leading-relaxed text-slate-600">
-                    {mfaTargetUser?.emailDelivered
-                      ? `We sent a 6-digit security verification code to ${mfaTargetUser?.email || mfaTargetUser?.maskedEmail}. Please check your inbox or spam.`
-                      : `A 6-digit Two-Factor security code has been generated for ${mfaTargetUser?.email || mfaTargetUser?.maskedEmail}.`}
+                    A 6-digit verification code has been dispatched to your registered Gmail address:{' '}
+                    <strong className="text-slate-900 font-extrabold">{mfaTargetUser?.email || mfaTargetUser?.maskedEmail}</strong>.
+                    Open your Gmail inbox or spam folder, copy the code, and paste it below to enter your resident portal.
                   </p>
                 </div>
 
-                {/* Live Email OTP & On-Screen Backup Code Autofill */}
-                {mfaTargetUser?.demoOtp && (
-                  <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex items-center justify-between shadow-xs">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      6-Digit Gmail Verification Code
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          const clean = text.replace(/[^0-9]/g, '').slice(0, 6);
+                          if (clean) setMfaCode(clean);
+                        } catch (err) {
+                          console.warn('Clipboard read error:', err);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-100/70 hover:bg-blue-100 px-2.5 py-1 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <Clipboard className="w-3.5 h-3.5" />
+                      <span>Paste Code</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    autoFocus
+                    maxLength={6}
+                    value={mfaCode}
+                    onPaste={(e) => {
+                      const pasted = e.clipboardData.getData('text');
+                      const clean = pasted.replace(/[^0-9]/g, '').slice(0, 6);
+                      if (clean) {
+                        e.preventDefault();
+                        setMfaCode(clean);
+                      }
+                    }}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    className="w-full px-4 py-3 bg-white/95 border border-slate-300 rounded-2xl text-center text-2xl font-mono font-black tracking-[0.3em] text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 text-center font-medium">
+                    Check your registered Gmail inbox for the 6-digit code
+                  </p>
+                </div>
+
+                {/* Emergency code fallback shown only if email is in testing mode or failed live delivery */}
+                {!mfaTargetUser?.emailDelivered && mfaTargetUser?.demoOtp && (
+                  <div className="p-3 bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-600">
                     <div>
-                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                        <Shield className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Live Email OTP • On-Screen Backup Code</span>
-                      </div>
-                      <div className="text-2xl font-mono font-black text-emerald-700 tracking-widest mt-0.5">
-                        {mfaTargetUser.demoOtp}
-                      </div>
-                      <p className="text-[10px] text-emerald-700/90 font-medium">
-                        Dispatched to Gmail. Click to autofill backup code immediately without switching tabs.
-                      </p>
+                      <span className="font-semibold text-slate-800 text-[11px]">Emergency Security Code:</span>
+                      <span className="font-mono font-bold text-slate-900 ml-2 tracking-widest">{mfaTargetUser.demoOtp}</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setMfaCode(mfaTargetUser.demoOtp || '')}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-extrabold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Autofill Backup Code</span>
+                      Use Code
                     </button>
                   </div>
                 )}
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Security Passcode
-                  </label>
-                  <input
-                    type="text"
-                    autoFocus
-                    maxLength={8}
-                    value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value.toUpperCase())}
-                    placeholder="123456"
-                    className="w-full px-4 py-3 bg-white/90 border border-slate-300 rounded-2xl text-center text-xl font-mono font-bold tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-inner"
-                  />
-                </div>
 
                 <button
                   type="submit"
@@ -810,6 +860,37 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                       placeholder="maria@gmail.com"
                       className="w-full px-3 py-2 bg-white/80 border border-slate-300 rounded-xl text-xs text-slate-900 font-medium focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+                </div>
+
+                {/* Civil Status & Gender */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Civil Status *
+                    </label>
+                    <select
+                      value={regCivilStatus}
+                      onChange={(e) => setRegCivilStatus(e.target.value)}
+                      className="w-full px-3 py-2 bg-white/80 border border-slate-300 rounded-xl text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Single">Single</option>
+                      <option value="Married">Married</option>
+                      <option value="Widowed">Widowed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Gender *
+                    </label>
+                    <select
+                      value={regGender}
+                      onChange={(e) => setRegGender(e.target.value)}
+                      className="w-full px-3 py-2 bg-white/80 border border-slate-300 rounded-xl text-xs text-slate-900 font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
                   </div>
                 </div>
 

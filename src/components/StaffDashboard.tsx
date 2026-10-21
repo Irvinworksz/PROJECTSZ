@@ -341,8 +341,22 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({
                           </span>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="font-bold text-slate-900">{req.residentName}</div>
-                          <span className="text-[10px] text-slate-500 font-medium">{req.purok}</span>
+                          <div className="flex items-center gap-2.5">
+                            {req.idAttachmentUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReview(req)}
+                                className="w-9 h-9 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 cursor-pointer shadow-xs hover:ring-2 hover:ring-blue-500 transition-all"
+                                title="Click to review resident"
+                              >
+                                <img src={req.idAttachmentUrl} alt={req.residentName} className="w-full h-full object-cover" />
+                              </button>
+                            ) : null}
+                            <div>
+                              <div className="font-bold text-slate-900">{req.residentName}</div>
+                              <span className="text-[10px] text-slate-500 font-medium">{req.purok}</span>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap uppercase font-bold text-slate-700">
                           {req.documentType.replace(/_/g, ' ')}

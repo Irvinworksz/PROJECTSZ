@@ -1,81 +1,116 @@
-# Seamless Firebase Password Reset & Google Account Linking Plan
+# Resident Portal Experience & Identity Management Implementation Plan
 
-This plan resolves the dual authentication barrier between Firebase Authentication and the local portal database, enabling seamless password synchronization from Firebase email reset links and automatic linking when signing in with Google.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> Based on your answers to the clarifying questions, the system will implement the following verified behaviors:
-
-- **Confirmed Decision 1 (Firebase Password Reset Sync)**: When you reset your password via the Firebase email link, the portal will automatically detect and sync your new Firebase password into your portal profile, updating your encrypted local password hash so you can log in immediately without credentials mismatch.
-- **Confirmed Decision 2 (Google Sign-In Account Linking)**: When you click "Continue with Google", the system will automatically link your Google account to your registered email address, even if you originally registered with a username and password, seamlessly opening your existing resident dashboard.
+Streamline the resident portal experience by removing redundant security controls, integrating civil status options, automating registered identity verification on certificate applications, and ensuring uploaded resident pictures are seamlessly visible to Barangay Staff and the Punong Barangay (Barangay Captain).
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Scope & Core Objectives
 
-### Why It Wasn't Working
-1. **Separate Password Vaults**: When you click the Firebase password reset link sent to your Gmail, you create a new password on Google's cloud server. Previously, the portal's backend still stored your previous local password hash (`bcrypt`), causing the portal to reject your new password.
-2. **Credential Conflict (`auth/account-exists-with-different-credential`)**: Firebase Authentication by default treats "Email/Password" and "Google Sign-In" as separate credentials for the same email address. When an account was created via password and then attempted to sign in with Google, Firebase threw a credential collision error instead of linking the two methods.
+Based on your direct specifications and clarified requirements:
 
-### The Solution
-- **Bi-Directional Auth Validation**: During sign-in, if a user enters their newly reset Firebase password, the client/server validates with Firebase Auth, automatically upgrades the local bcrypt hash to match the new password, and logs the user in smoothly.
-- **Automatic Identity Linking**: In `signInWithGoogleFirebase`, the client catches `auth/account-exists-with-different-credential`, resolves the credential with Firebase Auth, and the backend pairs the Google profile with the existing user record by matching email address (`carinok92@gmail.com`).
+1. **Remove Resident Document Vault & MFA Settings**:
+   - Remove the **Secure Document Vault** and **IAS Security & MFA Settings** tabs from the Resident Dashboard.
+   - Remove the **MFA: Active / Disabled** button from the resident profile header.
+   - Keep 2FA disabled for resident accounts so residents can navigate directly without complex MFA configuration.
 
----
+2. **Add Civil Status to Resident Profile & Edit Contact Info**:
+   - In the **Edit Contact Info** modal, add a **Civil Status** dropdown with strictly three options:
+     - **Single**
+     - **Married**
+     - **Widowed**
+   - Save and persist the selected Civil Status to the resident's profile and user records in SQLite and Firebase Firestore.
+   - Display the updated Civil Status prominently on the resident's dashboard summary card.
+   - Align the account creation registration form to use the same three Civil Status options (**Single**, **Married**, **Widowed**).
 
-## 2. User Experience & Flows
+3. **Automate Government ID on Applications (Remove Manual Re-upload)**:
+   - In the **Request New E-Clearance** application modal, remove the manual file upload and document vault selection controls.
+   - Display an **"Official ID on File"** preview card showing the exact Government ID / picture submitted during account registration (with ID Type, ID Number, and instant image thumbnail preview).
+   - Automatically bind the resident's registered ID image URL and filename when creating the application, eliminating the need to repeatedly upload documents.
 
-### Flow A: Firebase Password Reset & Relogin
-1. Resident clicks **Forgot Password** and receives the official Google Firebase link in their Gmail.
-2. Resident clicks the link and types a new password on Google's reset page.
-3. Resident returns to the portal and enters their registered email/username and new password.
-4. The system validates the new credentials, updates the stored password hash in the database, and logs the user in immediately.
-
-### Flow B: Sign In With Google for Registered Email
-1. Resident who previously registered with email/password clicks **Continue with Google**.
-2. Resident selects their Google account (`carinok92@gmail.com`).
-3. The system links Google to their existing resident account, preserves their registered civil status, residency details, and uploaded ID, and redirects directly to their dashboard.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Client-Side Fallback Verification**:
-  - *Chosen Approach*: Validate against Firebase Auth directly in the client if the local database hash check indicates an update occurred via Firebase.
-  - *Why*: Allows immediate login with newly reset Firebase passwords without requiring server-side service account private keys.
-- **Decision 2: Seamless Email Matching for Google Sign-In**:
-  - *Chosen Approach*: Match Google profile email directly against existing resident profiles in the database.
-  - *Why*: Prevents duplicate accounts from being created and avoids locking residents out when switching between password login and Google 1-click login.
+4. **Synchronize Resident Uploaded Picture Across Staff & Barangay Captain Portals**:
+   - Ensure the picture uploaded during account registration is stored as `idPhotoUrl` and `avatarUrl`.
+   - In **Staff Dashboard**:
+     - Display the resident's actual uploaded picture in the **Resident Verification Queue** and in the clearance review modal.
+     - Enable full high-resolution image zoom and modal preview for staff officers.
+   - In **Barangay Captain (Official Signing Portal)**:
+     - Update the **"Inspect ID"** modal to render the resident's actual uploaded photo in high fidelity instead of a generic placeholder avatar.
 
 ---
 
-## 4. Technical Architecture & Component Mapping
+## 2. Proposed Changes & Technical Architecture
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│                    User Client (Browser)                     │
-│                                                               │
-│   ┌─────────────────────┐            ┌────────────────────┐   │
-│   │   SignInPage.tsx    │            │ ForgotPassword.tsx │   │
-│   └──────────┬──────────┘            └─────────┬──────────┘   │
-└──────────────┼─────────────────────────────────┼──────────────┘
-               │                                 │
-               ▼                                 ▼
-┌───────────────────────────────────────────────────────────────┐
-│              Authentication Layer (firebase.ts)               │
-│                                                               │
-│   • signInWithGoogleFirebase() -> Handles Linking Error       │
-│   • verifyFirebasePassword()   -> Validates Reset Password    │
-│   • sendFirebasePasswordReset()-> Dispatches Email Link       │
-└──────────────┬────────────────────────────────────────────────┘
-               │
-               ▼
-┌───────────────────────────────────────────────────────────────┐
-│                 Express Backend (server.ts)                   │
-│                                                               │
-│   • POST /api/auth/login: Adopt & update password hash        │
-│   • POST /api/auth/firebase-google-login: Link existing user  │
-│   • Sync updated password hash to Firestore real-time         │
-└───────────────────────────────────────────────────────────────┘
-```
+### Component & Backend Changes
+
+#### 1. `src/types.ts`
+- Update `ResidentProfile['civilStatus']` to `'Single' | 'Married' | 'Widowed'`.
+- Ensure `User` and `ClearanceRequest` maintain fields for `civilStatus`, `idPhotoUrl`, and `idAttachmentUrl`.
+
+#### 2. `src/components/ResidentDashboard.tsx`
+- Remove the tabs bar for **"Secure Document Vault"** and **"IAS Security & MFA Settings"**, keeping the view focused exclusively on **"My Applications"** and e-clearance tracking.
+- Remove the header button `MFA: Active / Disabled`.
+- **Edit Contact Info Modal**:
+  - Add state `editCivilStatus` initialized from `profile?.civilStatus || user.civilStatus || 'Single'`.
+  - Add a select dropdown with options: `Single`, `Married`, and `Widowed`.
+  - Pass `civilStatus` to `apiClient.updateProfile()`.
+- **Request New E-Clearance Modal**:
+  - Remove `idSourceType`, file upload picker, malware simulation toggle, and vault selector.
+  - Render a clean **"Government ID on File"** section showcasing the resident's registration ID with a zoomable thumbnail, ID Type, and ID Number.
+  - Automatically attach the registered `idPhotoUrl` and `idPhotoName` to the application payload.
+
+#### 3. `src/components/SignInPage.tsx`
+- In the **Create Account (Registration)** form:
+  - Update the Civil Status dropdown to strictly **Single**, **Married**, and **Widowed**.
+  - Ensure the uploaded picture file is captured as base64 / URL and submitted as both `idPhotoUrl` and `avatarUrl`.
+
+#### 4. `src/server/db.ts` & `server.ts`
+- In `db.updateUserProfile(userId, data)`:
+  - Add support for updating `user.civil_status` and `profile.civilStatus`.
+- In `PUT /api/auth/profile`:
+  - Validate and accept `civilStatus` (`Single`, `Married`, or `Widowed`) and commit it to both local storage and Firestore.
+- In `POST /api/clearances`:
+  - If `idAttachmentUrl` is not explicitly provided in the request body, automatically fallback to `residentUser.id_photo_url` or `residentProfile.idPhotoUrl`.
+
+#### 5. `src/components/StaffDashboard.tsx`
+- In the **Resident Verification Queue**:
+  - Ensure the resident's uploaded picture renders clearly in the table thumbnail and opens in the full-size inspector modal.
+- In the **Clearance Review Modal**:
+  - Render the resident's uploaded ID image directly (with high-resolution inspection button).
+
+#### 6. `src/components/OfficialSigningPortal.tsx`
+- In the **Signatory Verification ID Inspection Modal**:
+  - Render the resident's real uploaded picture / ID image (`inspectingReq.idAttachmentUrl || inspectingReq.residentPhotoUrl`) at full clarity with zoom capabilities, replacing the placeholder letter icon.
+
+---
+
+## 3. Verification & Testing Plan
+
+1. **Resident Registration Test**:
+   - Register a new resident account with an uploaded picture and select Civil Status (**Single**, **Married**, or **Widowed**).
+   - Verify that the picture is saved and accessible.
+
+2. **Resident Profile & Contact Update Test**:
+   - Log into the resident portal.
+   - Verify that **Secure Document Vault** and **IAS Security MFA Settings** tabs are gone.
+   - Verify that the header MFA button is removed.
+   - Click **Edit Contact Info**, change Civil Status (e.g. from Single to Married), and click **Save**.
+   - Verify that the updated Civil Status immediately displays on the resident dashboard card and persists upon refresh.
+
+3. **Application Submission Test**:
+   - Click **Request New E-Clearance**.
+   - Verify that the manual government ID upload input is replaced with the **Government ID on File** card showing the registered image.
+   - Submit the application and verify that the application references the registered ID image automatically.
+
+4. **Staff Dashboard Review Test**:
+   - Log in as **Staff Desk** (`staff.elena`).
+   - In **Clearance Review**, click **Inspect High-Resolution ID** and confirm the resident's actual uploaded picture is visible.
+   - In **Resident Verification Queue**, verify that the resident's uploaded photo appears in the roster and the zoom modal.
+
+5. **Barangay Captain Signing Test**:
+   - Log in as **Barangay Captain** (`capt.laugo`).
+   - Click **Inspect ID** for the pending clearance.
+   - Confirm the resident's actual photo is displayed in full resolution.
+
+---
+
+## Ready to Proceed?
+Please review this implementation plan. When you are ready, click **Proceed** to begin the changes.

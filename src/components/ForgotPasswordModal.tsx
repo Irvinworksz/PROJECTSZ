@@ -99,6 +99,8 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       const fbResult = await sendFirebasePasswordReset(targetEmail);
       if (fbResult.success) {
         fbSent = true;
+        // Strictly invalidate previous password so only the newly set password will be accepted
+        apiClient.invalidateOldPassword(res.userId || targetEmail).catch(console.error);
       } else {
         fbErr = fbResult.error;
       }
@@ -122,7 +124,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
       setResendCooldown(30);
 
       const successNotice = fbSent
-        ? `Official Google Firebase reset email sent to ${targetEmail}! Click the link in your Gmail to set your new password—the portal will automatically sync it when you sign in.`
+        ? `Official Google Firebase reset email sent to ${targetEmail}! Click the link in your Gmail to set your new password. Your old password has been invalidated and only your new password will be accepted.`
         : res.emailDelivered
         ? `A 6-digit security reset code has been sent directly to your Gmail inbox (${res.email || res.maskedEmail}).`
         : `A 6-digit security reset code has been generated for ${res.email || res.maskedEmail || targetEmail}.`;
